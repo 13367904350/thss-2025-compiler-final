@@ -11,6 +11,7 @@
 #include "ir/Type.h"
 #include "ir/Constant.h"
 #include "ir/IRBuilder.h"
+#include "ir/CodeGenVisitor.h"
 
 using namespace antlr4;
 
@@ -92,7 +93,21 @@ int main(int argc, const char *argv[]) {
 
   std::cout << "Parsed successfully!" << std::endl;
 
-  // TODO: IR Generation
+  // IR Generation
+  Module *module = new Module("module");
+  CodeGenVisitor visitor(module);
+  visitor.visit(tree);
+
+  // 输出到文件
+  std::ofstream out(argv[2]);
+  if (!out.is_open()) {
+      std::cerr << "Failed to open output file: " << argv[2] << std::endl;
+      return 1;
+  }
+  out << module->print();
+  out.close();
+
+  std::cout << "IR written to " << argv[2] << std::endl;
 
   return 0;
 }
