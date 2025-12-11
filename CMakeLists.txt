@@ -20,7 +20,11 @@ file(GLOB SRC_FILES
     src/ir/*.cpp
 )
 
-add_executable(compiler src/main.cpp ${SRC_FILES})
+set(VISITOR_SRC
+    src/visitor/IRGenerator.cpp
+)
+
+add_executable(compiler src/main.cpp ${SRC_FILES} ${VISITOR_SRC})
 
 # Link runtime
 target_link_libraries(compiler antlr4_shared)
@@ -66,5 +70,5 @@ if(ENABLE_ASAN)
 endif()
 
 # Test IR executable
-add_executable(test_ir test_ir.cpp ${SRC_FILES})
+add_executable(test_ir test_ir.cpp ${SRC_FILES} ${VISITOR_SRC})
 target_link_libraries(test_ir antlr4_shared)
