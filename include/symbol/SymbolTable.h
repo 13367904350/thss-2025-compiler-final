@@ -5,15 +5,19 @@
 #include <vector>
 #include <string>
 
+class Constant;
+
 // 符号信息
 struct Symbol {
     std::string name;
     Type *type;
     Value *value; // 对应 IR 值
     bool is_global;
+    bool is_const;
+    Constant *const_value;
 
-    Symbol(std::string n, Type *t, Value *v, bool global)
-        : name(std::move(n)), type(t), value(v), is_global(global) {}
+    Symbol(std::string n, Type *t, Value *v, bool global, bool is_const = false, Constant *const_value = nullptr)
+        : name(std::move(n)), type(t), value(v), is_global(global), is_const(is_const), const_value(const_value) {}
 };
 
 // 符号表

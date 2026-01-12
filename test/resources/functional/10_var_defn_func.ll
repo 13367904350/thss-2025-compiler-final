@@ -1,0 +1,26 @@
+declare i32 @getint()
+
+declare i32 @getch()
+
+declare i32 @getarray(i32*)
+
+declare void @putint(i32)
+
+declare void @putch(i32)
+
+declare void @putarray(i32, i32*)
+
+define i32 @defn() {
+entry:
+  ret i32 4
+}
+
+define i32 @main() {
+entry:
+  %t0 = alloca i32
+  %v1 = call i32 @defn()
+  store i32 %v1, i32* %t0
+  %v2 = load i32, i32* %t0
+  ret i32 %v2
+}
+

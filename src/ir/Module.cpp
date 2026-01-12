@@ -4,7 +4,6 @@
 
 GlobalVariable::GlobalVariable(std::string name, Module *m, Type *ty, bool is_const, Constant *init)
     : User(PointerType::get(ty), name), is_const_(is_const), init_val_(init) {
-    : User(PointerType::get(ty), name), is_const_(is_const), init_val_(init) {
     m->addGlobalVariable(this);
 }
 

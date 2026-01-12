@@ -3,6 +3,7 @@
 #include "ir/Constant.h"
 #include "ir/Function.h"
 #include "ir/BasicBlock.h"
+#include <cctype>
 #include <typeinfo>
 
 // 提取表达式返回的 Value*
@@ -24,6 +25,430 @@ static inline Value *asValue(const std::any &a) {
         return std::any_cast<BinaryInst *>(a);
     }
     return nullptr;
+}
+
+static int parseIntLiteral(const std::string &text) {
+    if (text.size() > 2 && (text[0] == '0') && (text[1] == 'x' || text[1] == 'X')) {
+        return static_cast<int>(std::stoll(text, nullptr, 16));
+    }
+    if (text.size() > 1 && text[0] == '0' && (text[1] == 'o' || text[1] == 'O')) { // rare format 0o?
+        return static_cast<int>(std::stoll(text.substr(2), nullptr, 8));
+    }
+    if (text.size() > 1 && text[0] == '0' && std::isdigit(text[1])) {
+        return static_cast<int>(std::stoll(text, nullptr, 8));
+    }
+    return static_cast<int>(std::stoll(text, nullptr, 10));
+}
+
+int IRGenerator::evalConstExp(SysYParser::ConstExpContext *ctx) {
+    if (!ctx) return 0;
+    return evalAdd(ctx->addExp());
+}
+
+int IRGenerator::evalExpAsConst(SysYParser::ExpContext *ctx) {
+    if (!ctx) return 0;
+    return evalAdd(ctx->addExp());
+}
+
+int IRGenerator::evalAdd(SysYParser::AddExpContext *ctx) {
+    if (!ctx) return 0;
+    if (!ctx->addExp()) {
+        return evalMul(ctx->mulExp());
+    }
+    int lhs = evalAdd(ctx->addExp());
+    int rhs = evalMul(ctx->mulExp());
+    if (ctx->PLUS()) {
+        return lhs + rhs;
+    }
+    return lhs - rhs;
+}
+
+int IRGenerator::evalMul(SysYParser::MulExpContext *ctx) {
+    if (!ctx) return 0;
+    if (!ctx->mulExp()) {
+        return evalUnary(ctx->unaryExp());
+    }
+    int lhs = evalMul(ctx->mulExp());
+    int rhs = evalUnary(ctx->unaryExp());
+    if (ctx->MUL()) {
+        return lhs * rhs;
+    }
+    if (ctx->DIV()) {
+        if (rhs == 0) return 0;
+        return lhs / rhs;
+    }
+    if (rhs == 0) return 0;
+    int mod = lhs % rhs;
+    if ((mod != 0) && ((mod < 0) != (rhs < 0))) {
+        mod += rhs;
+    }
+    return mod;
+}
+
+int IRGenerator::evalUnary(SysYParser::UnaryExpContext *ctx) {
+    if (!ctx) return 0;
+    if (ctx->primaryExp()) {
+        return evalPrimary(ctx->primaryExp());
+    }
+    if (ctx->unaryOp() && ctx->unaryExp()) {
+        int val = evalUnary(ctx->unaryExp());
+        if (ctx->unaryOp()->PLUS()) {
+            return val;
+        }
+        if (ctx->unaryOp()->MINUS()) {
+            return -val;
+        }
+        if (ctx->unaryOp()->NOT()) {
+            return val == 0 ? 1 : 0;
+        }
+    }
+    return 0;
+}
+
+int IRGenerator::evalPrimary(SysYParser::PrimaryExpContext *ctx) {
+    if (!ctx) return 0;
+    if (ctx->number()) {
+        return evalNumber(ctx->number());
+    }
+    if (ctx->LPAREN()) {
+        return evalExpAsConst(ctx->exp());
+    }
+    if (ctx->lVal()) {
+        return evalConstLVal(ctx->lVal());
+    }
+    return 0;
+}
+
+int IRGenerator::evalNumber(SysYParser::NumberContext *ctx) {
+    if (!ctx) return 0;
+    return parseIntLiteral(ctx->getText());
+}
+
+int IRGenerator::evalConstLVal(SysYParser::LValContext *ctx) {
+    if (!ctx) return 0;
+    std::string ident = ctx->IDENT()->getText();
+    Symbol *sym = symbol_table_.lookup(ident);
+    if (!sym || !sym->is_const || sym->const_value == nullptr) {
+        return 0;
+    }
+    Constant *c = sym->const_value;
+    if (ctx->exp().empty()) {
+        if (auto *ci = dynamic_cast<ConstantInt *>(c)) {
+            return ci->getValue();
+        }
+        return 0;
+    }
+    std::vector<int> indices;
+    indices.reserve(ctx->exp().size());
+    for (auto *exp_ctx : ctx->exp()) {
+        indices.push_back(evalExpAsConst(exp_ctx));
+    }
+
+    Constant *current = c;
+    for (size_t i = 0; i < indices.size(); ++i) {
+        if (auto *arr = dynamic_cast<ConstantArray *>(current)) {
+            int idx = indices[i];
+            if (idx < 0 || static_cast<size_t>(idx) >= arr->getElements().size()) {
+                return 0;
+            }
+            current = arr->getElements()[idx];
+        } else {
+            return 0;
+        }
+    }
+    if (auto *ci = dynamic_cast<ConstantInt *>(current)) {
+        return ci->getValue();
+    }
+    return 0;
+}
+
+std::vector<int> IRGenerator::collectDimensions(const std::vector<SysYParser::ConstExpContext *> &dim_ctxs) {
+    std::vector<int> dims;
+    dims.reserve(dim_ctxs.size());
+    for (auto *c : dim_ctxs) {
+        dims.push_back(evalConstExp(c));
+    }
+    return dims;
+}
+
+Type *IRGenerator::buildArrayType(Type *base, const std::vector<int> &dims) {
+    Type *ty = base;
+    for (auto it = dims.rbegin(); it != dims.rend(); ++it) {
+        ty = ArrayType::get(ty, *it);
+    }
+    return ty;
+}
+
+Constant *IRGenerator::getZeroInitializer(Type *ty) {
+    if (ty->isIntegerTy()) {
+        return ConstantInt::get(ty, 0);
+    }
+    if (ty->isArrayTy()) {
+        auto *arr_ty = static_cast<ArrayType *>(ty);
+        std::vector<Constant *> elems;
+        elems.reserve(arr_ty->getNumElements());
+        for (unsigned i = 0; i < arr_ty->getNumElements(); ++i) {
+            elems.push_back(getZeroInitializer(arr_ty->getElementType()));
+        }
+        return ConstantArray::get(arr_ty, std::move(elems));
+    }
+    return nullptr;
+}
+
+Constant *IRGenerator::buildConstInitializer(Type *ty, SysYParser::ConstInitValContext *ctx) {
+    if (!ty->isArrayTy()) {
+        int val = 0;
+        if (ctx && ctx->constExp()) {
+            val = evalConstExp(ctx->constExp());
+        }
+        return ConstantInt::get(ty, val);
+    }
+
+    auto *arr_ty = static_cast<ArrayType *>(ty);
+    std::vector<Constant *> elements;
+    elements.reserve(arr_ty->getNumElements());
+
+    if (!ctx) {
+        for (unsigned i = 0; i < arr_ty->getNumElements(); ++i) {
+            elements.push_back(getZeroInitializer(arr_ty->getElementType()));
+        }
+        return ConstantArray::get(arr_ty, std::move(elements));
+    }
+
+    if (ctx->constExp()) {
+        Constant *first = buildConstInitializer(arr_ty->getElementType(), ctx);
+        elements.push_back(first);
+        for (unsigned i = 1; i < arr_ty->getNumElements(); ++i) {
+            elements.push_back(getZeroInitializer(arr_ty->getElementType()));
+        }
+        return ConstantArray::get(arr_ty, std::move(elements));
+    }
+
+    auto sub_inits = ctx->constInitVal();
+    size_t idx = 0;
+    for (unsigned i = 0; i < arr_ty->getNumElements(); ++i) {
+        SysYParser::ConstInitValContext *sub_ctx = nullptr;
+        if (idx < sub_inits.size()) {
+            sub_ctx = sub_inits[idx++];
+        }
+        if (!sub_ctx) {
+            elements.push_back(getZeroInitializer(arr_ty->getElementType()));
+        } else {
+            elements.push_back(buildConstInitializer(arr_ty->getElementType(), sub_ctx));
+        }
+    }
+    return ConstantArray::get(arr_ty, std::move(elements));
+}
+
+Constant *IRGenerator::buildVarInitializer(Type *ty, SysYParser::InitValContext *ctx) {
+    if (!ty->isArrayTy()) {
+        int val = 0;
+        if (ctx && ctx->exp()) {
+            val = evalExpAsConst(ctx->exp());
+        }
+        return ConstantInt::get(ty, val);
+    }
+
+    auto *arr_ty = static_cast<ArrayType *>(ty);
+    std::vector<Constant *> elements;
+    elements.reserve(arr_ty->getNumElements());
+
+    if (!ctx) {
+        for (unsigned i = 0; i < arr_ty->getNumElements(); ++i) {
+            elements.push_back(getZeroInitializer(arr_ty->getElementType()));
+        }
+        return ConstantArray::get(arr_ty, std::move(elements));
+    }
+
+    if (ctx->exp()) {
+        Constant *first = buildVarInitializer(arr_ty->getElementType(), ctx);
+        elements.push_back(first);
+        for (unsigned i = 1; i < arr_ty->getNumElements(); ++i) {
+            elements.push_back(getZeroInitializer(arr_ty->getElementType()));
+        }
+        return ConstantArray::get(arr_ty, std::move(elements));
+    }
+
+    auto sub_inits = ctx->initVal();
+    size_t idx = 0;
+    for (unsigned i = 0; i < arr_ty->getNumElements(); ++i) {
+        SysYParser::InitValContext *sub_ctx = nullptr;
+        if (idx < sub_inits.size()) {
+            sub_ctx = sub_inits[idx++];
+        }
+        if (!sub_ctx) {
+            elements.push_back(getZeroInitializer(arr_ty->getElementType()));
+        } else {
+            elements.push_back(buildVarInitializer(arr_ty->getElementType(), sub_ctx));
+        }
+    }
+    return ConstantArray::get(arr_ty, std::move(elements));
+}
+
+void IRGenerator::emitLocalInitializer(Value *ptr, Type *ty, SysYParser::InitValContext *ctx) {
+    std::vector<int> indices;
+    emitLocalInitRecursive(ptr, ty, ctx, indices);
+}
+
+void IRGenerator::emitLocalInitRecursive(Value *ptr, Type *ty, SysYParser::InitValContext *ctx, std::vector<int> &indices) {
+    if (!ty->isArrayTy()) {
+        Value *val = nullptr;
+        if (ctx && ctx->exp()) {
+            val = asValue(visit(ctx->exp()));
+        }
+        if (!val) {
+            val = ConstantInt::get(0);
+        }
+        val = promoteToInt32(val);
+
+        std::vector<Value *> gep_indices;
+        auto *ptr_ty = dynamic_cast<PointerType *>(ptr->getType());
+        if (ptr_ty && ptr_ty->getElementType()->isArrayTy()) {
+            gep_indices.push_back(ConstantInt::get(0));
+        }
+        for (int idx : indices) {
+            gep_indices.push_back(ConstantInt::get(idx));
+        }
+
+        Value *dest_ptr = gep_indices.empty() ? ptr : builder_.createGEP(ptr, gep_indices);
+        builder_.createStore(val, dest_ptr);
+        return;
+    }
+
+    auto *arr_ty = static_cast<ArrayType *>(ty);
+    if (!ctx) {
+        for (unsigned i = 0; i < arr_ty->getNumElements(); ++i) {
+            indices.push_back(static_cast<int>(i));
+            emitLocalInitRecursive(ptr, arr_ty->getElementType(), nullptr, indices);
+            indices.pop_back();
+        }
+        return;
+    }
+
+    if (ctx->exp()) {
+        indices.push_back(0);
+        emitLocalInitRecursive(ptr, arr_ty->getElementType(), ctx, indices);
+        indices.pop_back();
+        for (unsigned i = 1; i < arr_ty->getNumElements(); ++i) {
+            indices.push_back(static_cast<int>(i));
+            emitLocalInitRecursive(ptr, arr_ty->getElementType(), nullptr, indices);
+            indices.pop_back();
+        }
+        return;
+    }
+
+    auto sub_inits = ctx ? ctx->initVal() : std::vector<SysYParser::InitValContext *>();
+    size_t child_idx = 0;
+    for (unsigned i = 0; i < arr_ty->getNumElements(); ++i) {
+        SysYParser::InitValContext *sub_ctx = nullptr;
+        if (child_idx < sub_inits.size()) {
+            sub_ctx = sub_inits[child_idx++];
+        }
+        indices.push_back(static_cast<int>(i));
+        emitLocalInitRecursive(ptr, arr_ty->getElementType(), sub_ctx, indices);
+        indices.pop_back();
+    }
+}
+
+IRGenerator::LValueInfo IRGenerator::getLValueInfo(SysYParser::LValContext *ctx) {
+    LValueInfo info;
+    if (!ctx) return info;
+
+    std::string ident = ctx->IDENT()->getText();
+    Symbol *sym = symbol_table_.lookup(ident);
+    if (!sym) {
+        return info;
+    }
+
+    info.symbol = sym;
+    info.type = sym->type;
+    Value *base_ptr = sym->value;
+
+    std::vector<Value *> indices;
+    Type *current_ty = sym->type;
+
+    if (current_ty && current_ty->isArrayTy()) {
+        indices.push_back(ConstantInt::get(0));
+    }
+
+    for (auto *exp_ctx : ctx->exp()) {
+        Value *idx_val = asValue(visit(exp_ctx));
+        idx_val = promoteToInt32(idx_val);
+        if (!idx_val) {
+            idx_val = ConstantInt::get(0);
+        }
+        indices.push_back(idx_val);
+
+        if (current_ty) {
+            if (current_ty->isArrayTy()) {
+                current_ty = static_cast<ArrayType *>(current_ty)->getElementType();
+            } else if (current_ty->isPointerTy()) {
+                current_ty = static_cast<PointerType *>(current_ty)->getElementType();
+            }
+        }
+    }
+
+    if (!indices.empty()) {
+        info.addr = builder_.createGEP(base_ptr, indices);
+        info.type = current_ty;
+    } else {
+        info.addr = base_ptr;
+    }
+
+    return info;
+}
+
+Value *IRGenerator::promoteToInt32(Value *val) {
+    if (!val) return nullptr;
+    if (val->getType()->isIntegerTy()) {
+        auto *int_ty = static_cast<IntegerType *>(val->getType());
+        if (int_ty->getBitWidth() == 1) {
+            return builder_.createZExt(val, Type::getInt32Ty());
+        }
+    }
+    return val;
+}
+
+void IRGenerator::emitConstInitializer(Value *ptr, Type *ty, Constant *init) {
+    std::vector<int> indices;
+    emitConstInitRecursive(ptr, ty, init, indices);
+}
+
+void IRGenerator::emitConstInitRecursive(Value *ptr, Type *ty, Constant *init, std::vector<int> &indices) {
+    if (!ty->isArrayTy()) {
+        Constant *val_const = init;
+        if (!val_const) {
+            val_const = ConstantInt::get(ty, 0);
+        }
+
+        std::vector<Value *> gep_indices;
+        auto *ptr_ty = dynamic_cast<PointerType *>(ptr->getType());
+        if (ptr_ty && ptr_ty->getElementType()->isArrayTy()) {
+            gep_indices.push_back(ConstantInt::get(0));
+        }
+        for (int idx : indices) {
+            gep_indices.push_back(ConstantInt::get(idx));
+        }
+
+        Value *dest_ptr = gep_indices.empty() ? ptr : builder_.createGEP(ptr, gep_indices);
+        builder_.createStore(val_const, dest_ptr);
+        return;
+    }
+
+    auto *arr_ty = static_cast<ArrayType *>(ty);
+    const std::vector<Constant *> *elems = nullptr;
+    if (auto *arr_const = dynamic_cast<ConstantArray *>(init)) {
+        elems = &arr_const->getElements();
+    }
+    for (unsigned i = 0; i < arr_ty->getNumElements(); ++i) {
+        Constant *sub_init = nullptr;
+        if (elems && i < elems->size()) {
+            sub_init = (*elems)[i];
+        }
+        indices.push_back(static_cast<int>(i));
+        emitConstInitRecursive(ptr, arr_ty->getElementType(), sub_init, indices);
+        indices.pop_back();
+    }
 }
 
 std::any IRGenerator::visitCompUnit(SysYParser::CompUnitContext *ctx) {
@@ -128,165 +553,103 @@ std::any IRGenerator::visitMulExp(SysYParser::MulExpContext *ctx) {
 }
 
 std::any IRGenerator::visitPrimaryExp(SysYParser::PrimaryExpContext *ctx) {
-    if (ctx->number()) { // 常量
-        int val = std::stoi(ctx->number()->getText());
+    if (ctx->number()) {
+        int val = evalNumber(ctx->number());
         return ConstantInt::get(val);
-    } else if (ctx->LPAREN() && ctx->RPAREN()) { // 括号表达式
+    }
+    if (ctx->LPAREN()) {
         return visit(ctx->exp());
-    } else if (ctx->lVal()) { // 变量引用
-        auto ident = ctx->lVal()->IDENT()->getText();
-        Symbol *sym = symbol_table_.lookup(ident);
-        if (!sym) {
+    }
+    if (ctx->lVal()) {
+        auto info = getLValueInfo(ctx->lVal());
+        if (!info.addr || !info.type) {
             return nullptr;
         }
-        return builder_.createLoad(sym->type, sym->value);
+        if (info.type->isArrayTy()) {
+            auto *ptr_ty = dynamic_cast<PointerType *>(info.addr->getType());
+            if (ptr_ty && ptr_ty->getElementType()->isArrayTy()) {
+                std::vector<Value *> idx = {ConstantInt::get(0), ConstantInt::get(0)};
+                return builder_.createGEP(info.addr, idx);
+            }
+            return info.addr;
+        }
+        Value *loaded = builder_.createLoad(info.type, info.addr);
+        return loaded;
     }
     return nullptr;
 }
 
 std::any IRGenerator::visitDecl(SysYParser::DeclContext *ctx) {
-    // 处理变量声明或常量声明
     if (ctx->constDecl()) {
-        return visitConstDecl(ctx->constDecl());
-    } else if (ctx->varDecl()) {
-        auto *var_decl = ctx->varDecl();
-        if (var_decl->varDef().empty()) return nullptr;
+        visitConstDecl(ctx->constDecl());
+        return nullptr;
+    }
+    if (!ctx->varDecl()) {
+        return nullptr;
+    }
 
-        auto var_ty = Type::getInt32Ty(); 
+    bool is_global = current_func_ == nullptr;
+    Type *base_ty = Type::getInt32Ty();
 
-        // 处理所有变量定义
-        for (auto *var_def : var_decl->varDef()) {
-            auto ident = var_def->IDENT()->getText();
+    for (auto *var_def : ctx->varDecl()->varDef()) {
+        std::string ident = var_def->IDENT()->getText();
+        auto dims = collectDimensions(var_def->constExp());
+        Type *var_ty = dims.empty() ? base_ty : buildArrayType(base_ty, dims);
 
-            // 获取初始化表达式并求值
-            ConstantInt *init_val = nullptr;
-            if (var_def->initVal() && var_def->initVal()->exp()) {
-                // 全局变量
-                auto exp_result = visit(var_def->initVal()->exp());
-                auto *val = asValue(exp_result);
-                if (val) {
-                    if (auto *ci = dynamic_cast<ConstantInt*>(val)) {
-                        init_val = ci;
-                    } else {
-                        // 尝试从文本解析
-                        try {
-                            int int_val = std::stoi(var_def->initVal()->exp()->getText());
-                            init_val = ConstantInt::get(int_val);
-                        } catch (...) {
-                            init_val = ConstantInt::get(0);
-                        }
-                    }
-                } else {
-                    //求值失败，尝试文本解析
-                    try {
-                        int int_val = std::stoi(var_def->initVal()->exp()->getText());
-                        init_val = ConstantInt::get(int_val);
-                    } catch (...) {
+        if (is_global) {
+            Constant *init = nullptr;
+            if (var_def->initVal()) {
+                init = buildVarInitializer(var_ty, var_def->initVal());
+            }
+            auto *global = new GlobalVariable(ident, module_, var_ty, false, init);
+            symbol_table_.insert(ident, Symbol(ident, var_ty, global, true));
+        } else {
+            Value *alloca = builder_.createAlloca(var_ty);
+            if (var_ty->isArrayTy()) {
+                if (var_def->initVal()) {
+                    emitLocalInitializer(alloca, var_ty, var_def->initVal());
+                }
+            } else {
+                if (var_def->initVal() && var_def->initVal()->exp()) {
+                    Value *init_val = asValue(visit(var_def->initVal()->exp()));
+                    init_val = promoteToInt32(init_val);
+                    if (!init_val) {
                         init_val = ConstantInt::get(0);
                     }
+                    builder_.createStore(init_val, alloca);
                 }
             }
-
-            auto global = new GlobalVariable(
-                ident, module_, var_ty,
-                false, // 非 const
-                init_val
-            );
-
-            symbol_table_.insert(ident, Symbol(ident, var_ty, global, true));
+            symbol_table_.insert(ident, Symbol(ident, var_ty, alloca, false));
         }
-        return nullptr;
     }
     return nullptr;
 }
 
 std::any IRGenerator::visitConstDecl(SysYParser::ConstDeclContext *ctx) {
-    // 处理形如const int a = <exp>的常量声明
-    if (!ctx->constDef().empty()) {
-        auto var_ty = Type::getInt32Ty(); 
+    bool is_global = current_func_ == nullptr;
+    Type *base_ty = Type::getInt32Ty();
 
-        // 处理所有常量定义
-        for (auto *const_def : ctx->constDef()) {
-            auto ident = const_def->IDENT()->getText();
+    for (auto *const_def : ctx->constDef()) {
+        std::string ident = const_def->IDENT()->getText();
+        auto dims = collectDimensions(const_def->constExp());
+        Type *var_ty = dims.empty() ? base_ty : buildArrayType(base_ty, dims);
+        Constant *init = buildConstInitializer(var_ty, const_def->constInitVal());
 
-            // 获取初始化表达式并求值
-            ConstantInt *init_val = nullptr;
-            if (const_def->constInitVal() && const_def->constInitVal()->constExp()) {
-                // 文本解析
-                try {
-                    int int_val = std::stoi(const_def->constInitVal()->constExp()->getText());
-                    init_val = ConstantInt::get(int_val);
-                } catch (...) {
-                    init_val = ConstantInt::get(0);
-                }
-            }
-
-            auto global = new GlobalVariable(
-                ident, module_, var_ty,
-                true, // const
-                init_val
-            );
-
-            symbol_table_.insert(ident, Symbol(ident, var_ty, global, true));
+        if (is_global) {
+            auto *global = new GlobalVariable(ident, module_, var_ty, true, init);
+            symbol_table_.insert(ident, Symbol(ident, var_ty, global, true, true, init));
+        } else {
+            Value *alloca = builder_.createAlloca(var_ty);
+            emitConstInitializer(alloca, var_ty, init);
+            symbol_table_.insert(ident, Symbol(ident, var_ty, alloca, false, true, init));
         }
     }
     return nullptr;
 }
 
 std::any IRGenerator::visitBlockItem(SysYParser::BlockItemContext *ctx) {
-    if (ctx->decl()) { // 局部变量声明或常量声明
-        if (ctx->decl()->constDecl()) {
-            // 处理局部常量声明
-            auto *const_decl = ctx->decl()->constDecl();
-            if (!const_decl->constDef().empty()) {
-                auto var_ty = Type::getInt32Ty();
-
-                // 处理所有常量定义
-                for (auto *const_def : const_decl->constDef()) {
-                    auto ident = const_def->IDENT()->getText();
-
-                    auto alloca = builder_.createAlloca(var_ty);
-
-                    // 获取初始化表达式并求值
-                    ConstantInt *init_val = nullptr;
-                    if (const_def->constInitVal() && const_def->constInitVal()->constExp()) {
-                        // 文本解析
-                        try {
-                            int int_val = std::stoi(const_def->constInitVal()->constExp()->getText());
-                            init_val = ConstantInt::get(int_val);
-                        } catch (...) {
-                            init_val = ConstantInt::get(0);
-                        }
-                    }
-
-                    if (init_val) {
-                        builder_.createStore(init_val, alloca);
-                    }
-
-                    symbol_table_.insert(ident, Symbol(ident, var_ty, alloca, false));
-                }
-            }
-        } else if (ctx->decl()->varDecl()) {
-            // 局部变量
-            auto *var_decl = ctx->decl()->varDecl();
-            if (!var_decl) return nullptr;
-
-            auto var_ty = Type::getInt32Ty();
-            for (auto def : var_decl->varDef()) {
-                auto ident = def->IDENT()->getText();
-
-                auto alloca = builder_.createAlloca(var_ty);
-
-                if (def->initVal() && def->initVal()->exp()) {
-                    auto *init_val = asValue(visit(def->initVal()->exp()));
-                    if (init_val) {
-                        builder_.createStore(init_val, alloca);
-                    }
-                }
-
-                symbol_table_.insert(ident, Symbol(ident, var_ty, alloca, false));
-            }
-        }
+    if (ctx->decl()) {
+        visitDecl(ctx->decl());
     } else if (ctx->stmt()) {
         visit(ctx->stmt());
     }
@@ -294,14 +657,18 @@ std::any IRGenerator::visitBlockItem(SysYParser::BlockItemContext *ctx) {
 }
 
 std::any IRGenerator::visitAssignStmt(SysYParser::AssignStmtContext *ctx) {
-    auto ident = ctx->lVal()->IDENT()->getText();
-    Symbol *sym = symbol_table_.lookup(ident);
-    if (!sym) return nullptr;
+    auto info = getLValueInfo(ctx->lVal());
+    if (!info.addr || (info.symbol && info.symbol->is_const)) {
+        return nullptr;
+    }
 
     Value *rhs = asValue(visit(ctx->exp()));
-    if (rhs) {
-        builder_.createStore(rhs, sym->value);
+    rhs = promoteToInt32(rhs);
+    if (!rhs || (info.type && info.type->isArrayTy())) {
+        return nullptr;
     }
+
+    builder_.createStore(rhs, info.addr);
     return nullptr;
 }
 

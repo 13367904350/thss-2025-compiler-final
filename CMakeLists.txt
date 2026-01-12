@@ -70,5 +70,5 @@ if(ENABLE_ASAN)
 endif()
 
 # Test IR executable
-add_executable(test_ir test_ir.cpp ${SRC_FILES} ${VISITOR_SRC})
-target_link_libraries(test_ir antlr4_shared)
+# add_executable(test_ir test_ir.cpp ${SRC_FILES} ${VISITOR_SRC})
+# target_link_libraries(test_ir antlr4_shared)

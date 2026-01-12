@@ -141,6 +141,6 @@ private:
 
     // 生成指令名称
     std::string getNextName() {
-        return std::to_string(inst_count_++);
+        return "t" + std::to_string(inst_count_++);
     }
 };

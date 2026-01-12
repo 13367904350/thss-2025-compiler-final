@@ -3,6 +3,19 @@
 #include "ir/Function.h"
 #include <iostream>
 
+static Type *computeGEPResultType(Value *ptr, const std::vector<Value *> &idxs) {
+    auto *ptr_ty = static_cast<PointerType *>(ptr->getType());
+    Type *result_ty = ptr_ty->getElementType();
+    for (size_t i = 1; i < idxs.size(); ++i) {
+        if (result_ty->isArrayTy()) {
+            result_ty = static_cast<ArrayType *>(result_ty)->getElementType();
+        } else if (result_ty->isPointerTy()) {
+            result_ty = static_cast<PointerType *>(result_ty)->getElementType();
+        }
+    }
+    return PointerType::get(result_ty);
+}
+
 Instruction::Instruction(Type *ty, OpID id, unsigned num_ops, BasicBlock *parent)
     : User(ty, "", num_ops), op_id_(id), parent_(parent) {
     if (parent_) {
@@ -203,7 +216,7 @@ std::string ZExtInst::print() const {
 }
 
 GetElementPtrInst::GetElementPtrInst(Value *ptr, std::vector<Value *> idxs, BasicBlock *parent)
-    : Instruction(PointerType::get(static_cast<PointerType *>(ptr->getType())->getElementType()), GetElementPtr, idxs.size() + 1, parent) {
+    : Instruction(computeGEPResultType(ptr, idxs), GetElementPtr, idxs.size() + 1, parent) {
     setOperand(0, ptr);
     for (size_t i = 0; i < idxs.size(); ++i) {
         setOperand(i + 1, idxs[i]);

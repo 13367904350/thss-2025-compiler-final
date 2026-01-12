@@ -5,9 +5,12 @@
 #include "ir/Module.h"
 #include "ir/IRBuilder.h"
 #include "ir/Type.h"
+#include "ir/Constant.h"
 #include <map>
 #include <vector>
 #include <string>
+#include <utility>
+#include <cstddef>
 
 class CodeGenVisitor : public SysYParserBaseVisitor {
 public:
@@ -53,25 +56,25 @@ public:
     virtual std::any visitConstExp(SysYParser::ConstExpContext *ctx) override;
 
 private:
+    struct SymbolInfo {
+        Value *value = nullptr;
+        Type *type = nullptr;
+        bool isConst = false;
+        Constant *constValue = nullptr;
+        bool isGlobal = false;
+    };
+
     Module *module_;
     Function *current_function_;
     IRBuilder builder_{nullptr};
     int temp_count_;
 
-    // Symbol table: variable name -> Value* (alloca or GlobalVariable)
-    std::vector<std::map<std::string, Value *>> symbol_table_;
-    
-    // Global symbol table (separate for global variables)
-    std::map<std::string, Value *> global_symbol_table_;
+    // Scoped symbol tables with detailed info
+    std::vector<std::map<std::string, SymbolInfo>> symbol_table_;
+    std::map<std::string, SymbolInfo> global_symbol_table_;
 
     // Function table: function name -> Function*
     std::map<std::string, Function *> function_table_;
-
-    // Constant table: const variable name -> constant value (int)
-    std::vector<std::map<std::string, int>> const_table_;
-    
-    // Global constant table
-    std::map<std::string, int> global_const_table_;
 
     // Loop context stack for break/continue
     // Each entry: (loop header block, loop exit block)
@@ -86,7 +89,7 @@ private:
     // Helper methods
     std::string genName() { return "v" + std::to_string(++temp_count_); }
     std::string genBBName(const std::string &prefix) { return prefix + std::to_string(++bb_count_); }
-    
+
     // Generate unique IR variable name (for handling same-named variables in different scopes)
     std::string genVarName(const std::string &baseName) {
         int count = var_name_counter_[baseName]++;
@@ -95,69 +98,49 @@ private:
         }
         return baseName + "." + std::to_string(count);
     }
-    
-    // Check if type is i1
+
     bool isInt1Type(Type *ty) {
-        if (!ty->isIntegerTy()) return false;
-        IntegerType *intTy = static_cast<IntegerType *>(ty);
+        if (!ty || !ty->isIntegerTy()) return false;
+        auto *intTy = static_cast<IntegerType *>(ty);
         return intTy->getBitWidth() == 1;
     }
-    
-    // Check if we are in global scope (not inside a function)
+
     bool isGlobalScope() const { return current_function_ == nullptr; }
 
-    // Symbol table management
-    void pushScope() { 
-        symbol_table_.push_back({}); 
-        const_table_.push_back({});
+    void pushScope() { symbol_table_.push_back({}); }
+
+    void popScope() {
+        if (!symbol_table_.empty()) symbol_table_.pop_back();
     }
-    void popScope() { 
-        if (!symbol_table_.empty()) symbol_table_.pop_back(); 
-        if (!const_table_.empty()) const_table_.pop_back();
-    }
-    void addSymbol(const std::string &name, Value *val) {
-        if (isGlobalScope()) {
-            global_symbol_table_[name] = val;
+
+    void addSymbol(const std::string &name, Value *val, Type *type, bool isConst = false, Constant *constValue = nullptr) {
+        SymbolInfo info{val, type, isConst, constValue, isGlobalScope()};
+        if (info.isGlobal) {
+            global_symbol_table_[name] = info;
         } else if (!symbol_table_.empty()) {
-            symbol_table_.back()[name] = val;
+            symbol_table_.back()[name] = info;
         }
     }
-    Value *lookupSymbol(const std::string &name) {
-        // First search local scopes
+
+    SymbolInfo *lookupSymbolInfo(const std::string &name) {
         for (auto it = symbol_table_.rbegin(); it != symbol_table_.rend(); ++it) {
             auto found = it->find(name);
-            if (found != it->end()) return found->second;
-        }
-        // Then search global scope
-        auto git = global_symbol_table_.find(name);
-        if (git != global_symbol_table_.end()) return git->second;
-        return nullptr;
-    }
-    
-    // Const table management
-    void addConst(const std::string &name, int val) {
-        if (isGlobalScope()) {
-            global_const_table_[name] = val;
-        } else if (!const_table_.empty()) {
-            const_table_.back()[name] = val;
-        }
-    }
-    bool lookupConst(const std::string &name, int &val) {
-        // First search local scopes
-        for (auto it = const_table_.rbegin(); it != const_table_.rend(); ++it) {
-            auto found = it->find(name);
             if (found != it->end()) {
-                val = found->second;
-                return true;
+                return &found->second;
             }
         }
-        // Then search global scope
-        auto git = global_const_table_.find(name);
-        if (git != global_const_table_.end()) {
-            val = git->second;
-            return true;
+        auto git = global_symbol_table_.find(name);
+        if (git != global_symbol_table_.end()) {
+            return &git->second;
         }
-        return false;
+        return nullptr;
+    }
+
+    Constant *lookupConstValue(const std::string &name) {
+        if (auto *info = lookupSymbolInfo(name)) {
+            return info->constValue;
+        }
+        return nullptr;
     }
 
     // Function table management
@@ -176,4 +159,22 @@ private:
     int evalConstUnaryExp(SysYParser::UnaryExpContext *ctx);
     int evalConstPrimaryExp(SysYParser::PrimaryExpContext *ctx);
     int evalConstNumber(SysYParser::NumberContext *ctx);
+    int evalConstExp(SysYParser::ConstExpContext *ctx);
+    int evalConstExp(SysYParser::ExpContext *ctx);
+    int evalConstLVal(SysYParser::LValContext *ctx);
+    std::vector<int> collectDimensions(const std::vector<SysYParser::ConstExpContext *> &dimCtxs);
+    Type *buildArrayType(Type *base, const std::vector<int> &dims);
+    Constant *getZeroInitializer(Type *ty);
+    Constant *buildConstInitializer(Type *ty, SysYParser::ConstInitValContext *ctx);
+    Constant *buildVarInitializer(Type *ty, SysYParser::InitValContext *ctx);
+    void emitLocalInitializer(Value *ptr, Type *ty, SysYParser::InitValContext *ctx);
+    void emitLocalInitRecursive(Value *ptr, Type *ty, SysYParser::InitValContext *ctx, std::vector<int> &indices);
+    void fillArrayInitFromScalars(Value *ptr, Type *ty, const std::vector<SysYParser::InitValContext *> &subInits, size_t &cursor, std::vector<int> &indices);
+    void emitConstInitializer(Value *ptr, Type *ty, Constant *init);
+    void emitConstInitRecursive(Value *ptr, Type *ty, Constant *init, std::vector<int> &indices);
+    Value *promoteToInt32(Value *val);
+    Value *getArrayElementPtr(const SymbolInfo &info, SysYParser::LValContext *ctx, Type **elemTy);
+    Value *adjustArgumentToParam(Value *arg, Type *paramTy);
+    Constant *buildConstArrayFromScalars(Type *ty, const std::vector<SysYParser::ConstInitValContext *> &subInits, size_t &cursor);
+    Constant *buildVarArrayFromScalars(Type *ty, const std::vector<SysYParser::InitValContext *> &subInits, size_t &cursor);
 };
