@@ -4,13 +4,14 @@
 
 GlobalVariable::GlobalVariable(std::string name, Module *m, Type *ty, bool is_const, Constant *init)
     : User(PointerType::get(ty), name), is_const_(is_const), init_val_(init) {
+    : User(PointerType::get(ty), name), is_const_(is_const), init_val_(init) {
     m->addGlobalVariable(this);
 }
 
 std::string GlobalVariable::print() const {
-    // getType()返回PointerType，需要获取被指向的类型
-    Type *element_ty = static_cast<PointerType*>(getType())->getElementType();
-    std::string s = "@" + getName() + " = " + (is_const_ ? "constant " : "global ") + element_ty->print() + " ";
+    // Get the element type from pointer type
+    Type *elemTy = static_cast<PointerType *>(getType())->getElementType();
+    std::string s = "@" + getName() + " = " + (is_const_ ? "constant " : "global ") + elemTy->print() + " ";
     if (init_val_) {
         s += init_val_->print();
     } else {

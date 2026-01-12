@@ -142,9 +142,9 @@ bool BranchInst::isCond() const {
 
 std::string BranchInst::print() const {
     if (isCond()) {
-        return "br " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + ", label %" + getOperand(1)->getNameStr() + ", label %" + getOperand(2)->getNameStr();
+        return "br " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + ", label %" + getOperand(1)->getName() + ", label %" + getOperand(2)->getName();
     } else {
-        return "br label %" + getOperand(0)->getNameStr();
+        return "br label %" + getOperand(0)->getName();
     }
 }
 
@@ -183,7 +183,7 @@ std::string CallInst::print() const {
     if (!getType()->isVoidTy()) {
         s += "%" + getName() + " = ";
     }
-    s += "call " + getType()->print() + " @" + getOperand(0)->getNameStr() + "(";
+    s += "call " + getType()->print() + " " + getOperand(0)->getNameStr() + "(";
     for (size_t i = 1; i < getNumOperands(); ++i) {
         s += getOperand(i)->getType()->print() + " " + getOperand(i)->getNameStr();
         if (i < getNumOperands() - 1)
