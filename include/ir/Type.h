@@ -12,7 +12,8 @@ public:
         IntegerTyID,
         FunctionTyID,
         PointerTyID,
-        ArrayTyID
+        ArrayTyID,
+        FloatTyID
     };
 
     explicit Type(TypeID tid) : tid_(tid) {}
@@ -26,6 +27,7 @@ public:
     bool isFunctionTy() const { return tid_ == FunctionTyID; }
     bool isPointerTy() const { return tid_ == PointerTyID; }
     bool isArrayTy() const { return tid_ == ArrayTyID; }
+    bool isFloatTy() const { return tid_ == FloatTyID; }
 
     static Type *getVoidTy();
     static Type *getLabelTy();
@@ -33,6 +35,8 @@ public:
     static Type *getInt32Ty();
     static Type *getInt64Ty();
     static Type *getInt32PtrTy();
+    static Type *getFloatTy();
+    static Type *getFloatPtrTy();
 
     virtual std::string print() = 0;
 

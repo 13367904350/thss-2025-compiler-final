@@ -15,16 +15,25 @@ public:
         Mul,
         SDiv,
         SRem,
+        // Floating point binary
+        FAdd,
+        FSub,
+        FMul,
+        FDiv,
         // Memory operators
         Alloca,
         Load,
         Store,
         // Other operators
         ICmp,
+        FCmp,
         Call,
         GetElementPtr,
         ZExt,
-        SExt
+        SExt,
+        // Casts
+        SIToFP,
+        FPToSI
     };
 
     Instruction(Type *ty, OpID id, unsigned num_ops, BasicBlock *parent = nullptr);
@@ -51,6 +60,10 @@ public:
     static BinaryInst *createMul(Value *v1, Value *v2, BasicBlock *parent = nullptr);
     static BinaryInst *createSDiv(Value *v1, Value *v2, BasicBlock *parent = nullptr);
     static BinaryInst *createSRem(Value *v1, Value *v2, BasicBlock *parent = nullptr);
+    static BinaryInst *createFAdd(Value *v1, Value *v2, BasicBlock *parent = nullptr);
+    static BinaryInst *createFSub(Value *v1, Value *v2, BasicBlock *parent = nullptr);
+    static BinaryInst *createFMul(Value *v1, Value *v2, BasicBlock *parent = nullptr);
+    static BinaryInst *createFDiv(Value *v1, Value *v2, BasicBlock *parent = nullptr);
 
     std::string print() const override;
 private:
@@ -112,9 +125,34 @@ private:
     std::string getOpName() const;
 };
 
+class FCmpInst : public Instruction {
+public:
+    enum FCmpOp {
+        OEQ, ONE, OGT, OGE, OLT, OLE,
+        UEQ, UNE, UGT, UGE, ULT, ULE
+    };
+    FCmpInst(FCmpOp op, Value *lhs, Value *rhs, BasicBlock *parent = nullptr);
+    std::string print() const override;
+private:
+    FCmpOp cmp_op_;
+    std::string getOpName() const;
+};
+
 class CallInst : public Instruction {
 public:
     CallInst(Function *func, std::vector<Value *> args, BasicBlock *parent = nullptr);
+    std::string print() const override;
+};
+
+class SIToFPInst : public Instruction {
+public:
+    SIToFPInst(Value *val, Type *ty, BasicBlock *parent = nullptr);
+    std::string print() const override;
+};
+
+class FPToSIInst : public Instruction {
+public:
+    FPToSIInst(Value *val, Type *ty, BasicBlock *parent = nullptr);
     std::string print() const override;
 };
 

@@ -30,21 +30,26 @@ public:
     std::any visitExpStmt(SysYParser::ExpStmtContext *ctx) override;
 
 private:
+    Type *getUpgradedType(Type *t1, Type *t2);
+    Value *castTo(Value *val, Type *ty, BasicBlock *bb); 
+    
     struct LValueInfo {
         Value *addr = nullptr;
         Type *type = nullptr;
         Symbol *symbol = nullptr;
     };
 
+    int evalConstExpAsInt(SysYParser::ConstExpContext *ctx);
+
     // Helpers for constant evaluation
-    int evalConstExp(SysYParser::ConstExpContext *ctx);
-    int evalExpAsConst(SysYParser::ExpContext *ctx);
-    int evalAdd(SysYParser::AddExpContext *ctx);
-    int evalMul(SysYParser::MulExpContext *ctx);
-    int evalUnary(SysYParser::UnaryExpContext *ctx);
-    int evalPrimary(SysYParser::PrimaryExpContext *ctx);
-    int evalNumber(SysYParser::NumberContext *ctx);
-    int evalConstLVal(SysYParser::LValContext *ctx);
+    Constant *evalConstExp(SysYParser::ConstExpContext *ctx);
+    Constant *evalExpAsConst(SysYParser::ExpContext *ctx);
+    Constant *evalAdd(SysYParser::AddExpContext *ctx);
+    Constant *evalMul(SysYParser::MulExpContext *ctx);
+    Constant *evalUnary(SysYParser::UnaryExpContext *ctx);
+    Constant *evalPrimary(SysYParser::PrimaryExpContext *ctx);
+    Constant *evalNumber(SysYParser::NumberContext *ctx);
+    Constant *evalConstLVal(SysYParser::LValContext *ctx);
 
     // Helpers for type construction and constants
     std::vector<int> collectDimensions(const std::vector<SysYParser::ConstExpContext *> &dim_ctxs);

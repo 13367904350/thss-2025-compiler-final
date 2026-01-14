@@ -1,0 +1,52 @@
+float add(float a, float b) {
+    return a + b;
+}
+
+float sub(float a, float b) {
+    return a - b;
+}
+
+float mul(float a, float b) {
+    return a * b;
+}
+
+// 嵌套调用测试核心
+// 逻辑: (a * b) + (c - d)
+float combine(float a, float b, float c, float d) {
+    return add(mul(a, b), sub(c, d));
+}
+
+// 深度嵌套: (((val + 1.0) * 2.0) - 3.0)
+float deep_nest(float val) {
+    return sub(mul(add(val, 1.0), 2.0), 3.0);
+}
+
+int main() {
+    float a = 1.5;
+    float b = 2.0;
+    float c = 5.5;
+    float d = 1.5;
+
+    // 1. 测试普通嵌套
+    // mul(1.5, 2.0) = 3.0
+    // sub(5.5, 1.5) = 4.0
+    // add(3.0, 4.0) = 7.0
+    // 测试参数调用 combine(1.5, 2.0, 5.5, 1.5)
+    float res1 = combine(a, b, c, d);
+    if (res1 == 7.0) putint(1); else putint(0);
+    putch(10);
+
+    // 2. 测试参数位置里的嵌套调用
+    // add( mul(1.5, 2.0), sub(5.5, 1.5) )
+    // add( 3.0, 4.0 ) = 7.0
+    float res2 = add(mul(a, b), sub(c, d));
+    if (res2 == 7.0) putint(1); else putint(0);
+    putch(10);
+
+    // 3. 测试链式嵌套
+    // deep_nest(1.0) -> ((1+1)*2)-3 = 4-3 = 1.0
+    if (deep_nest(1.0) == 1.0) putint(1); else putint(0);
+    putch(10);
+
+    return 0;
+}

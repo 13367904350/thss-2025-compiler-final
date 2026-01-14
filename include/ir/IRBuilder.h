@@ -13,7 +13,7 @@ public:
         insert_point_ = bb;
     }
 
-    BasicBlock *getInsertPoint() const {
+    BasicBlock *GetInsertBlock() const {
         return insert_point_;
     }
 
@@ -43,6 +43,31 @@ public:
 
     BinaryInst *createSRem(Value *lhs, Value *rhs) {
         auto *inst = BinaryInst::createSRem(lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    // Float arithmetic
+    BinaryInst *createFAdd(Value *lhs, Value *rhs) {
+        auto *inst = BinaryInst::createFAdd(lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    BinaryInst *createFSub(Value *lhs, Value *rhs) {
+        auto *inst = BinaryInst::createFSub(lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    BinaryInst *createFMul(Value *lhs, Value *rhs) {
+        auto *inst = BinaryInst::createFMul(lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    BinaryInst *createFDiv(Value *lhs, Value *rhs) {
+        auto *inst = BinaryInst::createFDiv(lhs, rhs, insert_point_);
         inst->setName(getNextName());
         return inst;
     }

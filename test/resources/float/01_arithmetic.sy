@@ -1,0 +1,34 @@
+int main() {
+    // 1. 优先级测试: 乘法优先于加法
+    float a = 2.0;
+    float b = 3.0;
+    float c = 4.0;
+    // 应该是 2.0 + 12.0 = 14.0
+    if (a + b * c == 14.0) putint(1); else putint(0);
+    putch(10);
+
+    // 2. 括号测试
+    // 应该是 5.0 * 4.0 = 20.0
+    if ((a + b) * c == 20.0) putint(1); else putint(0);
+    putch(10);
+
+    // 3. 负数混合运算
+    // -2.0 - 3.0 = -5.0
+    if (-a - b == -5.0) putint(1); else putint(0);
+    putch(10);
+
+    // 4. 各种比较操作符 (LLVM IR: fcmp oeq, ogt, olt, oge, ole, one)
+    float x = 1.5;
+    float y = 1.5;
+    float z = 2.5;
+
+    if (x == y) putint(1); else putint(0); // Equal
+    if (x != z) putint(1); else putint(0); // Not Equal
+    if (x < z)  putint(1); else putint(0); // Less Than
+    if (z > x)  putint(1); else putint(0); // Greater Than
+    if (x <= y) putint(1); else putint(0); // Less or Equal
+    if (x >= y) putint(1); else putint(0); // Greater or Equal
+    putch(10);
+
+    return 0;
+}

@@ -12,13 +12,13 @@
 class  SysYParser : public antlr4::Parser {
 public:
   enum {
-    CONST = 1, INT = 2, VOID = 3, IF = 4, ELSE = 5, WHILE = 6, BREAK = 7, 
-    CONTINUE = 8, RETURN = 9, PLUS = 10, MINUS = 11, MUL = 12, DIV = 13, 
-    MOD = 14, ASSIGN = 15, EQ = 16, NEQ = 17, LT = 18, GT = 19, LE = 20, 
-    GE = 21, NOT = 22, AND = 23, OR = 24, LPAREN = 25, RPAREN = 26, LBRACK = 27, 
-    RBRACK = 28, LBRACE = 29, RBRACE = 30, COMMA = 31, SEMICOLON = 32, IDENT = 33, 
-    DEC_INT_CONST = 34, OCT_INT_CONST = 35, HEX_INT_CONST = 36, WS = 37, 
-    LINE_COMMENT = 38, BLOCK_COMMENT = 39
+    CONST = 1, INT = 2, FLOAT = 3, VOID = 4, IF = 5, ELSE = 6, WHILE = 7, 
+    BREAK = 8, CONTINUE = 9, RETURN = 10, PLUS = 11, MINUS = 12, MUL = 13, 
+    DIV = 14, MOD = 15, ASSIGN = 16, EQ = 17, NEQ = 18, LT = 19, GT = 20, 
+    LE = 21, GE = 22, NOT = 23, AND = 24, OR = 25, LPAREN = 26, RPAREN = 27, 
+    LBRACK = 28, RBRACK = 29, LBRACE = 30, RBRACE = 31, COMMA = 32, SEMICOLON = 33, 
+    IDENT = 34, FLOAT_CONST = 35, DEC_INT_CONST = 36, OCT_INT_CONST = 37, 
+    HEX_INT_CONST = 38, WS = 39, LINE_COMMENT = 40, BLOCK_COMMENT = 41
   };
 
   enum {
@@ -136,6 +136,7 @@ public:
     BTypeContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *INT();
+    antlr4::tree::TerminalNode *FLOAT();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -266,6 +267,7 @@ public:
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *VOID();
     antlr4::tree::TerminalNode *INT();
+    antlr4::tree::TerminalNode *FLOAT();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -514,6 +516,7 @@ public:
     antlr4::tree::TerminalNode *DEC_INT_CONST();
     antlr4::tree::TerminalNode *OCT_INT_CONST();
     antlr4::tree::TerminalNode *HEX_INT_CONST();
+    antlr4::tree::TerminalNode *FLOAT_CONST();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;

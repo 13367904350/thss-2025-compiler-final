@@ -1,0 +1,32 @@
+int main() {
+    float a = 1.5;
+    float b = 2.5;
+    float c = a + b;
+    if (c == 4.0) putint(1); else putint(0);
+    putch(10);
+    
+    // Sub
+    if (b - a == 1.0) putint(1); else putint(0);
+    putch(10);
+    
+    // Mul
+    if (a * 2.0 == 3.0) putint(1); else putint(0);
+    putch(10);
+    
+    // Div
+    if (b / 0.5 == 5.0) putint(1); else putint(0);
+    putch(10);
+
+    // Negative
+    float d = -1.5;
+    if (d == -1.5) putint(1); else putint(0);
+    putch(10);
+
+    // Cast int to float
+    int i = 2;
+    float f = i;
+    if (f == 2.0) putint(1); else putint(0);
+    putch(10);
+    
+    return 0;
+}

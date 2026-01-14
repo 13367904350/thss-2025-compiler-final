@@ -52,6 +52,34 @@ void CodeGenVisitor::declareLibraryFunctions() {
         Function *f = Function::create(ft, "putarray", module_);
         addFunction("putarray", f);
     }
+    // float getfloat()
+    {
+        std::vector<Type *> params;
+        FunctionType *ft = FunctionType::get(Type::getFloatTy(), params);
+        Function *f = Function::create(ft, "getfloat", module_);
+        addFunction("getfloat", f);
+    }
+    // void putfloat(float)
+    {
+        std::vector<Type *> params = {Type::getFloatTy()};
+        FunctionType *ft = FunctionType::get(Type::getVoidTy(), params);
+        Function *f = Function::create(ft, "putfloat", module_);
+        addFunction("putfloat", f);
+    }
+    // int getfarray(float a[])
+    {
+        std::vector<Type *> params = {Type::getFloatPtrTy()};
+        FunctionType *ft = FunctionType::get(Type::getInt32Ty(), params);
+        Function *f = Function::create(ft, "getfarray", module_);
+        addFunction("getfarray", f);
+    }
+    // void putfarray(int n, float a[])
+    {
+        std::vector<Type *> params = {Type::getInt32Ty(), Type::getFloatPtrTy()};
+        FunctionType *ft = FunctionType::get(Type::getVoidTy(), params);
+        Function *f = Function::create(ft, "putfarray", module_);
+        addFunction("putfarray", f);
+    }
 }
 
 std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
@@ -63,7 +91,11 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
     // Determine function name and return type
     std::string name = ctx->IDENT()->getText();
     Type *retTy = Type::getInt32Ty();
-    if (ctx->funcType()->VOID()) retTy = Type::getVoidTy();
+    if (ctx->funcType()->VOID()) {
+        retTy = Type::getVoidTy();
+    } else if (ctx->funcType()->FLOAT()) {
+        retTy = Type::getFloatTy();
+    }
 
     // Parse function parameters
     std::vector<Type *> paramTypes;
@@ -74,18 +106,23 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
             std::string paramName = paramCtx->IDENT()->getText();
             paramNames.push_back(paramName);
 
+            Type *baseTy = Type::getInt32Ty();
+            if (paramCtx->bType()->FLOAT()) {
+                baseTy = Type::getFloatTy();
+            }
+
             // Check if it's an array parameter (has LBRACK)
             if (!paramCtx->LBRACK().empty()) {
                 // Array parameter: build pointer to remaining dimensions
                 std::vector<int> dims = collectDimensions(paramCtx->constExp());
-                Type *elemTy = Type::getInt32Ty();
+                Type *elemTy = baseTy;
                 if (!dims.empty()) {
                     elemTy = buildArrayType(elemTy, dims);
                 }
                 paramTypes.push_back(PointerType::get(elemTy));
             } else {
-                // Regular int parameter
-                paramTypes.push_back(Type::getInt32Ty());
+                // Regular parameter (int or float)
+                paramTypes.push_back(baseTy);
             }
         }
     }
@@ -115,14 +152,16 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
         // Register parameter name to avoid conflict with local variables
         used_names_.insert(paramNames[i]);
 
-        if (paramTypes[i]->isIntegerTy()) {
-            std::string addrName = getUniqueName(paramNames[i] + ".addr");
-            AllocaInst *alloca = createEntryBlockAlloca(Type::getInt32Ty(), addrName);
-            builder_.createStore(args[i], alloca);
-            addSymbol(paramNames[i], alloca, Type::getInt32Ty());
-        } else {
-            addSymbol(paramNames[i], args[i], paramTypes[i]);
-        }
+        // Allocate space for parameter and store it
+        std::string addrName = getUniqueName(paramNames[i] + ".addr");
+        AllocaInst *alloca = createEntryBlockAlloca(paramTypes[i], addrName);
+        builder_.createStore(args[i], alloca);
+        
+        // Add to symbol table
+        // Note: For array params (pointers), we might need to handle them differently
+        // But for now, treating them as local variables (alloca) storing the pointer seems consistent
+        // with SysY spec where array params are decayed to pointers.
+        addSymbol(paramNames[i], alloca, paramTypes[i]);
     }
 
     // Visit function body (block will handle its own scope)
@@ -132,7 +171,7 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
     popScope();
 
     // Ensure function has a terminator
-    BasicBlock *currentBB = builder_.getInsertPoint();
+    BasicBlock *currentBB = builder_.GetInsertBlock();
     if (currentBB) {
         auto &insts = currentBB->getInstructions();
         if (insts.empty() || !insts.back()->isTerminator()) {
@@ -173,6 +212,11 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
     std::string varName = ctx->IDENT()->getText();
 
     Type *baseTy = Type::getInt32Ty();
+    auto *decl = dynamic_cast<SysYParser::VarDeclContext *>(ctx->parent);
+    if (decl && decl->bType()->FLOAT()) {
+        baseTy = Type::getFloatTy();
+    }
+    
     auto dims = collectDimensions(ctx->constExp());
     Type *varTy = dims.empty() ? baseTy : buildArrayType(baseTy, dims);
     bool isArray = !dims.empty();
@@ -183,8 +227,20 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
             if (isArray) {
                 init = buildVarInitializer(varTy, ctx->initVal());
             } else if (ctx->initVal()->exp()) {
-                int initVal = evalConstExp(ctx->initVal()->exp());
-                init = ConstantInt::get(varTy, initVal);
+                 // For global scalar, must evaluate to constant
+                 // But wait, initVal->exp() is meant for run-time init of locals.
+                 // For globals, it MUST be const.
+                 // SysY spec says globals must be initialized with const.
+                 // Use evaluators.
+                 Constant *c = evalConstExp(ctx->initVal()->exp());
+                 // Cast if needed
+                 if (baseTy->isIntegerTy() && c->getType()->isFloatTy()) {
+                     c = ConstantInt::get((int)std::dynamic_pointer_cast<ConstantFP>(std::shared_ptr<Constant>(c))->getValue()); // wait, raw pointer
+                     c = ConstantInt::get((int)static_cast<ConstantFP*>(c)->getValue());
+                 } else if (baseTy->isFloatTy() && c->getType()->isIntegerTy()) {
+                     c = ConstantFP::get((float)static_cast<ConstantInt*>(c)->getValue());
+                 }
+                 init = c;
             }
         }
         if (!init) {
@@ -201,10 +257,7 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
                 emitLocalInitializer(alloca, varTy, ctx->initVal());
             } else if (ctx->initVal()->exp()) {
                 Value *val = std::any_cast<Value *>(visit(ctx->initVal()->exp()));
-                val = promoteToInt32(val);
-                if (!val) {
-                    val = ConstantInt::get(0);
-                }
+                val = castTo(val, baseTy, builder_.GetInsertBlock());
                 builder_.createStore(val, alloca);
             }
         }
@@ -225,6 +278,11 @@ std::any CodeGenVisitor::visitConstDef(SysYParser::ConstDefContext *ctx) {
     std::string varName = ctx->IDENT()->getText();
 
     Type *baseTy = Type::getInt32Ty();
+    auto *decl = dynamic_cast<SysYParser::ConstDeclContext *>(ctx->parent);
+    if (decl && decl->bType()->FLOAT()) {
+        baseTy = Type::getFloatTy();
+    }
+
     auto dims = collectDimensions(ctx->constExp());
     Type *varTy = dims.empty() ? baseTy : buildArrayType(baseTy, dims);
     Constant *constInit = buildConstInitializer(varTy, ctx->constInitVal());
@@ -242,8 +300,8 @@ std::any CodeGenVisitor::visitConstDef(SysYParser::ConstDefContext *ctx) {
 
 std::any CodeGenVisitor::visitConstExp(SysYParser::ConstExpContext *ctx) {
     // constExp : addExp
-    int val = evalConstExp(ctx->addExp());
-    return ConstantInt::get(val);
+    Constant *c = evalConstExp(ctx->addExp());
+    return static_cast<Value *>(c);
 }
 
 // ==================== Assignment Statement ====================
@@ -265,13 +323,16 @@ std::any CodeGenVisitor::visitAssignStmt(SysYParser::AssignStmtContext *ctx) {
     // Evaluate the expression
     auto val_any = visit(ctx->exp());
     Value *val = std::any_cast<Value *>(val_any);
-    val = promoteToInt32(val);
 
     if (ctx->lVal()->LBRACK().empty()) {
         if (!info->value->getType()->isPointerTy() || (info->type && (info->type->isArrayTy() || info->type->isPointerTy()))) {
             std::cerr << "Error: Invalid assignment target '" << varName << "'" << std::endl;
             return nullptr;
         }
+        // Determine target element type from pointer
+        auto *ptrTy = static_cast<PointerType *>(info->value->getType());
+        Type *targetTy = ptrTy->getElementType();
+        val = castTo(val, targetTy, builder_.GetInsertBlock());
         builder_.createStore(val, info->value);
         return nullptr;
     }
@@ -282,7 +343,8 @@ std::any CodeGenVisitor::visitAssignStmt(SysYParser::AssignStmtContext *ctx) {
         std::cerr << "Error: Invalid array assignment for '" << varName << "'" << std::endl;
         return nullptr;
     }
-
+    
+    val = castTo(val, elemTy, builder_.GetInsertBlock());
     builder_.createStore(val, elemPtr);
     return nullptr;
 }
@@ -293,6 +355,12 @@ std::any CodeGenVisitor::visitReturnStmt(SysYParser::ReturnStmtContext *ctx) {
     if (ctx->exp()) {
         auto val_any = visit(ctx->exp());
         Value *val = std::any_cast<Value *>(val_any);
+
+        if (current_function_) {
+            Type *retTy = current_function_->getFunctionType()->getReturnType();
+            val = castTo(val, retTy, builder_.GetInsertBlock());
+        }
+
         builder_.createRet(val);
     } else {
         builder_.createRetVoid();
@@ -316,8 +384,12 @@ std::any CodeGenVisitor::visitIfStmt(SysYParser::IfStmtContext *ctx) {
     Value *condVal = std::any_cast<Value *>(cond_any);
     
     // Convert to i1 if necessary (non-zero = true)
-    // Check if it's i32 (not i1) by checking bit width
-    if (condVal->getType()->isIntegerTy()) {
+    if (condVal->getType()->isFloatTy()) {
+        ConstantFP *zero = ConstantFP::get(0.0f);
+        FCmpInst *cmp = new FCmpInst(FCmpInst::UNE, condVal, zero, builder_.GetInsertBlock());
+        cmp->setName(genName());
+        condVal = cmp;
+    } else if (condVal->getType()->isIntegerTy()) {
         IntegerType *intTy = static_cast<IntegerType *>(condVal->getType());
         if (intTy->getBitWidth() != 1) {
             ConstantInt *zero = ConstantInt::get(0);
@@ -339,7 +411,7 @@ std::any CodeGenVisitor::visitIfStmt(SysYParser::IfStmtContext *ctx) {
     visit(ctx->stmt(0));
     
     // If current block doesn't have terminator, branch to end
-    BasicBlock *currentBB = builder_.getInsertPoint();
+    BasicBlock *currentBB = builder_.GetInsertBlock();
     if (currentBB) {
         auto &insts = currentBB->getInstructions();
         if (insts.empty() || !insts.back()->isTerminator()) {
@@ -352,7 +424,7 @@ std::any CodeGenVisitor::visitIfStmt(SysYParser::IfStmtContext *ctx) {
         builder_.setInsertPoint(elseBB);
         visit(ctx->stmt(1));
         
-        currentBB = builder_.getInsertPoint();
+        currentBB = builder_.GetInsertBlock();
         if (currentBB) {
             auto &insts = currentBB->getInstructions();
             if (insts.empty() || !insts.back()->isTerminator()) {
@@ -383,7 +455,12 @@ std::any CodeGenVisitor::visitWhileStmt(SysYParser::WhileStmtContext *ctx) {
     Value *condVal = std::any_cast<Value *>(cond_any);
     
     // Convert to i1 if necessary
-    if (condVal->getType()->isIntegerTy()) {
+    if (condVal->getType()->isFloatTy()) {
+        ConstantFP *zero = ConstantFP::get(0.0f);
+        FCmpInst *cmp = new FCmpInst(FCmpInst::UNE, condVal, zero, builder_.GetInsertBlock());
+        cmp->setName(genName());
+        condVal = cmp;
+    } else if (condVal->getType()->isIntegerTy()) {
         IntegerType *intTy = static_cast<IntegerType *>(condVal->getType());
         if (intTy->getBitWidth() != 1) {
             ConstantInt *zero = ConstantInt::get(0);
@@ -407,7 +484,7 @@ std::any CodeGenVisitor::visitWhileStmt(SysYParser::WhileStmtContext *ctx) {
     loop_stack_.pop_back();
     
     // If current block doesn't have terminator, branch back to condition
-    BasicBlock *currentBB = builder_.getInsertPoint();
+    BasicBlock *currentBB = builder_.GetInsertBlock();
     if (currentBB) {
         auto &insts = currentBB->getInstructions();
         if (insts.empty() || !insts.back()->isTerminator()) {
@@ -461,16 +538,23 @@ std::any CodeGenVisitor::visitRelExp(SysYParser::RelExpContext *ctx) {
         Value *lhs = std::any_cast<Value *>(left_any);
         Value *rhs = std::any_cast<Value *>(right_any);
         
-        ICmpInst *cmp = nullptr;
-        if (ctx->LT()) {
-            cmp = builder_.createICmpLT(lhs, rhs);
-        } else if (ctx->GT()) {
-            cmp = builder_.createICmpGT(lhs, rhs);
-        } else if (ctx->LE()) {
-            cmp = builder_.createICmpLE(lhs, rhs);
-        } else if (ctx->GE()) {
-            cmp = builder_.createICmpGE(lhs, rhs);
+        Type *finalTy = getUpgradedType(lhs->getType(), rhs->getType());
+        lhs = castTo(lhs, finalTy, builder_.GetInsertBlock());
+        rhs = castTo(rhs, finalTy, builder_.GetInsertBlock());
+
+        Value *cmp = nullptr;
+        if (finalTy->isFloatTy()) {
+            if (ctx->LT()) cmp = new FCmpInst(FCmpInst::OLT, lhs, rhs, builder_.GetInsertBlock());
+            else if (ctx->GT()) cmp = new FCmpInst(FCmpInst::OGT, lhs, rhs, builder_.GetInsertBlock());
+            else if (ctx->LE()) cmp = new FCmpInst(FCmpInst::OLE, lhs, rhs, builder_.GetInsertBlock());
+            else if (ctx->GE()) cmp = new FCmpInst(FCmpInst::OGE, lhs, rhs, builder_.GetInsertBlock());
+        } else {
+            if (ctx->LT()) cmp = builder_.createICmpLT(lhs, rhs);
+            else if (ctx->GT()) cmp = builder_.createICmpGT(lhs, rhs);
+            else if (ctx->LE()) cmp = builder_.createICmpLE(lhs, rhs);
+            else if (ctx->GE()) cmp = builder_.createICmpGE(lhs, rhs);
         }
+        
         cmp->setName(genName());
         
         // Extend i1 to i32 for consistency
@@ -489,12 +573,19 @@ std::any CodeGenVisitor::visitEqExp(SysYParser::EqExpContext *ctx) {
         Value *lhs = std::any_cast<Value *>(left_any);
         Value *rhs = std::any_cast<Value *>(right_any);
         
-        ICmpInst *cmp = nullptr;
-        if (ctx->EQ()) {
-            cmp = builder_.createICmpEQ(lhs, rhs);
+        Type *finalTy = getUpgradedType(lhs->getType(), rhs->getType());
+        lhs = castTo(lhs, finalTy, builder_.GetInsertBlock());
+        rhs = castTo(rhs, finalTy, builder_.GetInsertBlock());
+
+        Value *cmp = nullptr;
+        if (finalTy->isFloatTy()) {
+             if (ctx->EQ()) cmp = new FCmpInst(FCmpInst::OEQ, lhs, rhs, builder_.GetInsertBlock());
+             else cmp = new FCmpInst(FCmpInst::ONE, lhs, rhs, builder_.GetInsertBlock());
         } else {
-            cmp = builder_.createICmpNE(lhs, rhs);
+             if (ctx->EQ()) cmp = builder_.createICmpEQ(lhs, rhs);
+             else cmp = builder_.createICmpNE(lhs, rhs);
         }
+        
         cmp->setName(genName());
         
         // Extend i1 to i32 for consistency
@@ -522,10 +613,19 @@ std::any CodeGenVisitor::visitLAndExp(SysYParser::LAndExpContext *ctx) {
         
         // Convert to i1 if necessary
         Value *lhsBool = lhs;
-        if (lhs->getType()->isIntegerTy() && !isInt1Type(lhs->getType())) {
-            ICmpInst *cmp = builder_.createICmpNE(lhs, zero);
-            cmp->setName(genName());
-            lhsBool = cmp;
+        if (lhs->getType()->isFloatTy()) {
+             ConstantFP *zero = ConstantFP::get(0.0f);
+             FCmpInst *cmp = new FCmpInst(FCmpInst::UNE, lhs, zero, builder_.GetInsertBlock());
+             cmp->setName(genName());
+             lhsBool = cmp;
+        } else if (lhs->getType()->isIntegerTy()) {
+             IntegerType *intTy = static_cast<IntegerType *>(lhs->getType());
+             if (intTy->getBitWidth() != 1) {
+                 ConstantInt *zero = ConstantInt::get(0);
+                 ICmpInst *cmp = builder_.createICmpNE(lhs, zero);
+                 cmp->setName(genName());
+                 lhsBool = cmp;
+             }
         }
         
         // Create blocks for short-circuit evaluation
@@ -542,10 +642,19 @@ std::any CodeGenVisitor::visitLAndExp(SysYParser::LAndExpContext *ctx) {
         
         // Convert rhs to bool and then to i32
         Value *rhsBool = rhs;
-        if (rhs->getType()->isIntegerTy() && !isInt1Type(rhs->getType())) {
-            ICmpInst *cmp = builder_.createICmpNE(rhs, zero);
-            cmp->setName(genName());
-            rhsBool = cmp;
+        if (rhs->getType()->isFloatTy()) {
+             ConstantFP *zero = ConstantFP::get(0.0f);
+             FCmpInst *cmp = new FCmpInst(FCmpInst::UNE, rhs, zero, builder_.GetInsertBlock());
+             cmp->setName(genName());
+             rhsBool = cmp;
+        } else if (rhs->getType()->isIntegerTy()) {
+             IntegerType *intTy = static_cast<IntegerType *>(rhs->getType());
+             if (intTy->getBitWidth() != 1) {
+                 ConstantInt *zero = ConstantInt::get(0);
+                 ICmpInst *cmp = builder_.createICmpNE(rhs, zero);
+                 cmp->setName(genName());
+                 rhsBool = cmp;
+             }
         }
         
         // Extend to i32 and store
@@ -583,10 +692,19 @@ std::any CodeGenVisitor::visitLOrExp(SysYParser::LOrExpContext *ctx) {
         
         // Convert to i1 if necessary
         Value *lhsBool = lhs;
-        if (lhs->getType()->isIntegerTy() && !isInt1Type(lhs->getType())) {
-            ICmpInst *cmp = builder_.createICmpNE(lhs, zero);
-            cmp->setName(genName());
-            lhsBool = cmp;
+        if (lhs->getType()->isFloatTy()) {
+             ConstantFP *zero = ConstantFP::get(0.0f);
+             FCmpInst *cmp = new FCmpInst(FCmpInst::UNE, lhs, zero, builder_.GetInsertBlock());
+             cmp->setName(genName());
+             lhsBool = cmp;
+        } else if (lhs->getType()->isIntegerTy()) {
+             IntegerType *intTy = static_cast<IntegerType *>(lhs->getType());
+             if (intTy->getBitWidth() != 1) {
+                 ConstantInt *zero = ConstantInt::get(0);
+                 ICmpInst *cmp = builder_.createICmpNE(lhs, zero);
+                 cmp->setName(genName());
+                 lhsBool = cmp;
+             }
         }
         
         // Create blocks for short-circuit evaluation
@@ -603,10 +721,19 @@ std::any CodeGenVisitor::visitLOrExp(SysYParser::LOrExpContext *ctx) {
         
         // Convert rhs to bool and then to i32
         Value *rhsBool = rhs;
-        if (rhs->getType()->isIntegerTy() && !isInt1Type(rhs->getType())) {
-            ICmpInst *cmp = builder_.createICmpNE(rhs, zero);
-            cmp->setName(genName());
-            rhsBool = cmp;
+        if (rhs->getType()->isFloatTy()) {
+             ConstantFP *zero = ConstantFP::get(0.0f);
+             FCmpInst *cmp = new FCmpInst(FCmpInst::UNE, rhs, zero, builder_.GetInsertBlock());
+             cmp->setName(genName());
+             rhsBool = cmp;
+        } else if (rhs->getType()->isIntegerTy()) {
+             IntegerType *intTy = static_cast<IntegerType *>(rhs->getType());
+             if (intTy->getBitWidth() != 1) {
+                 ConstantInt *zero = ConstantInt::get(0);
+                 ICmpInst *cmp = builder_.createICmpNE(rhs, zero);
+                 cmp->setName(genName());
+                 rhsBool = cmp;
+             }
         }
         
         // Extend to i32 and store
@@ -626,6 +753,31 @@ std::any CodeGenVisitor::visitLOrExp(SysYParser::LOrExpContext *ctx) {
     return visit(ctx->lAndExp());
 }
 
+Type *CodeGenVisitor::getUpgradedType(Type *t1, Type *t2) {
+    if (t1->isFloatTy() || t2->isFloatTy()) return Type::getFloatTy();
+    return Type::getInt32Ty();
+}
+
+Value *CodeGenVisitor::castTo(Value *val, Type *targetTy, BasicBlock *currBB) {
+    Type *srcTy = val->getType();
+    if (srcTy == targetTy) return val;
+    
+    if (targetTy->isFloatTy()) {
+        if (srcTy->isIntegerTy()) {
+            SIToFPInst *inst = new SIToFPInst(val, targetTy, currBB);
+            inst->setName(genName());
+            return inst;
+        }
+    } else if (targetTy->isIntegerTy()) {
+        if (srcTy->isFloatTy()) {
+            FPToSIInst *inst = new FPToSIInst(val, targetTy, currBB);
+            inst->setName(genName());
+            return inst;
+        }
+    }
+    return val;
+}
+
 std::any CodeGenVisitor::visitExp(SysYParser::ExpContext *ctx) {
     return visit(ctx->addExp());
 }
@@ -637,11 +789,18 @@ std::any CodeGenVisitor::visitAddExp(SysYParser::AddExpContext *ctx) {
         auto right_any = visit(ctx->mulExp());
         Value *lhs = std::any_cast<Value *>(left_any);
         Value *rhs = std::any_cast<Value *>(right_any);
+        
+        Type *finalTy = getUpgradedType(lhs->getType(), rhs->getType());
+        lhs = castTo(lhs, finalTy, builder_.GetInsertBlock());
+        rhs = castTo(rhs, finalTy, builder_.GetInsertBlock());
+        
         BinaryInst *bin = nullptr;
-        if (ctx->PLUS()) {
-            bin = builder_.createAdd(lhs, rhs);
+        if (finalTy->isFloatTy()) {
+             if (ctx->PLUS()) bin = builder_.createFAdd(lhs, rhs);
+             else bin = builder_.createFSub(lhs, rhs);
         } else {
-            bin = builder_.createSub(lhs, rhs);
+             if (ctx->PLUS()) bin = builder_.createAdd(lhs, rhs);
+             else bin = builder_.createSub(lhs, rhs);
         }
         bin->setName(genName());
         return static_cast<Value *>(bin);
@@ -656,13 +815,28 @@ std::any CodeGenVisitor::visitMulExp(SysYParser::MulExpContext *ctx) {
         auto right_any = visit(ctx->unaryExp());
         Value *lhs = std::any_cast<Value *>(left_any);
         Value *rhs = std::any_cast<Value *>(right_any);
+        
+        Type *finalTy = getUpgradedType(lhs->getType(), rhs->getType());
+        // Mod only supports int
+        if (ctx->MOD()) {
+            // Force int
+            lhs = castTo(lhs, Type::getInt32Ty(), builder_.GetInsertBlock());
+            rhs = castTo(rhs, Type::getInt32Ty(), builder_.GetInsertBlock());
+            BinaryInst *bin = builder_.createSRem(lhs, rhs);
+            bin->setName(genName());
+            return static_cast<Value *>(bin);
+        }
+
+        lhs = castTo(lhs, finalTy, builder_.GetInsertBlock());
+        rhs = castTo(rhs, finalTy, builder_.GetInsertBlock());
+
         BinaryInst *bin = nullptr;
-        if (ctx->MUL()) {
-            bin = builder_.createMul(lhs, rhs);
-        } else if (ctx->DIV()) {
-            bin = builder_.createSDiv(lhs, rhs);
+        if (finalTy->isFloatTy()) {
+            if (ctx->MUL()) bin = builder_.createFMul(lhs, rhs);
+            else if (ctx->DIV()) bin = builder_.createFDiv(lhs, rhs);
         } else {
-            bin = builder_.createSRem(lhs, rhs);
+            if (ctx->MUL()) bin = builder_.createMul(lhs, rhs);
+            else if (ctx->DIV()) bin = builder_.createSDiv(lhs, rhs);
         }
         bin->setName(genName());
         return static_cast<Value *>(bin);
@@ -682,14 +856,25 @@ std::any CodeGenVisitor::visitUnaryExp(SysYParser::UnaryExpContext *ctx) {
         if (op == "+") {
             return val;
         } else if (op == "-") {
+            if (val->getType()->isFloatTy()) {
+                ConstantFP *zero = ConstantFP::get(0.0f);
+                BinaryInst *bin = builder_.createFSub(zero, val);
+                bin->setName(genName());
+                return static_cast<Value *>(bin);
+            }
             ConstantInt *zero = ConstantInt::get(0);
             BinaryInst *bin = builder_.createSub(zero, val);
             bin->setName(genName());
             return static_cast<Value *>(bin);
         } else if (op == "!") {
             // logical not: compute icmp eq with zero
-            ConstantInt *zero = ConstantInt::get(0);
-            ICmpInst *cmp = builder_.createICmpEQ(val, zero);
+            Value *cmp;
+            if (val->getType()->isFloatTy()) {
+                 cmp = new FCmpInst(FCmpInst::OEQ, val, ConstantFP::get(0.0f), builder_.GetInsertBlock());
+            } else {
+                 ConstantInt *zero = ConstantInt::get(0);
+                 cmp = builder_.createICmpEQ(val, zero);
+            }
             cmp->setName(genName());
             // Extend i1 to i32
             ZExtInst *zext = builder_.createZExt(cmp, Type::getInt32Ty());
@@ -769,7 +954,9 @@ std::any CodeGenVisitor::visitLVal(SysYParser::LValContext *ctx) {
             return ptr;
         }
         if (info->type && info->type->isPointerTy()) {
-            return info->value;
+            LoadInst *load = builder_.createLoad(info->type, info->value);
+            load->setName(genName());
+            return static_cast<Value *>(load);
         }
         if (info->value->getType()->isPointerTy()) {
             LoadInst *load = builder_.createLoad(info->type ? info->type : Type::getInt32Ty(), info->value);
@@ -796,6 +983,11 @@ std::any CodeGenVisitor::visitLVal(SysYParser::LValContext *ctx) {
 }
 
 std::any CodeGenVisitor::visitNumber(SysYParser::NumberContext *ctx) {
+    if (ctx->FLOAT_CONST()) {
+        float val = std::stof(ctx->FLOAT_CONST()->getText());
+        return static_cast<Value *>(ConstantFP::get(val));
+    }
+
     std::string txt;
     if (ctx->DEC_INT_CONST()) txt = ctx->DEC_INT_CONST()->getText();
     else if (ctx->OCT_INT_CONST()) txt = ctx->OCT_INT_CONST()->getText();
@@ -817,82 +1009,104 @@ std::any CodeGenVisitor::visitNumber(SysYParser::NumberContext *ctx) {
 
 // ==================== Constant Expression Evaluation ====================
 
-static int parseIntLiteral(const std::string &text) {
-    if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
-        return static_cast<int>(std::stoll(text.substr(2), nullptr, 16));
-    }
-    if (text.size() > 2 && text[0] == '0' && (text[1] == 'o' || text[1] == 'O')) {
-        return static_cast<int>(std::stoll(text.substr(2), nullptr, 8));
-    }
-    if (text.size() > 1 && text[0] == '0' && std::isdigit(static_cast<unsigned char>(text[1]))) {
-        return static_cast<int>(std::stoll(text.substr(1), nullptr, 8));
-    }
-    return static_cast<int>(std::stoll(text, nullptr, 10));
-}
-
-int CodeGenVisitor::evalConstExp(SysYParser::ConstExpContext *ctx) {
-    if (!ctx) return 0;
+Constant *CodeGenVisitor::evalConstExp(SysYParser::ConstExpContext *ctx) {
+    if (!ctx) return ConstantInt::get(0);
     return evalConstExp(ctx->addExp());
 }
 
-int CodeGenVisitor::evalConstExp(SysYParser::ExpContext *ctx) {
-    if (!ctx) return 0;
+Constant *CodeGenVisitor::evalConstExp(SysYParser::ExpContext *ctx) {
+    if (!ctx) return ConstantInt::get(0);
     return evalConstExp(ctx->addExp());
 }
 
-int CodeGenVisitor::evalConstExp(SysYParser::AddExpContext *ctx) {
+Constant *CodeGenVisitor::evalConstExp(SysYParser::AddExpContext *ctx) {
     if (ctx->addExp()) {
-        int left = evalConstExp(ctx->addExp());
-        int right = evalConstMulExp(ctx->mulExp());
-        if (ctx->PLUS()) {
-            return left + right;
+        Constant *left = evalConstExp(ctx->addExp());
+        Constant *right = evalConstMulExp(ctx->mulExp());
+        
+        bool isFloat = left->getType()->isFloatTy() || right->getType()->isFloatTy();
+        float lval = 0, rval = 0;
+        int lval_i = 0, rval_i = 0;
+
+        if (auto *lf = dynamic_cast<ConstantFP*>(left)) lval = lf->getValue();
+        else if (auto *li = dynamic_cast<ConstantInt*>(left)) lval = (float)li->getValue();
+        
+        if (auto *rf = dynamic_cast<ConstantFP*>(right)) rval = rf->getValue();
+        else if (auto *ri = dynamic_cast<ConstantInt*>(right)) rval = (float)ri->getValue();
+        
+        if (isFloat) {
+             if (ctx->PLUS()) return ConstantFP::get(lval + rval);
+             return ConstantFP::get(lval - rval);
         }
-        return left - right;
+        
+        lval_i = dynamic_cast<ConstantInt*>(left)->getValue();
+        rval_i = dynamic_cast<ConstantInt*>(right)->getValue();
+        if (ctx->PLUS()) return ConstantInt::get(lval_i + rval_i);
+        return ConstantInt::get(lval_i - rval_i);
     }
     return evalConstMulExp(ctx->mulExp());
 }
 
-int CodeGenVisitor::evalConstMulExp(SysYParser::MulExpContext *ctx) {
+Constant *CodeGenVisitor::evalConstMulExp(SysYParser::MulExpContext *ctx) {
     if (ctx->mulExp()) {
-        int left = evalConstMulExp(ctx->mulExp());
-        int right = evalConstUnaryExp(ctx->unaryExp());
-        if (ctx->MUL()) {
-            return left * right;
+        Constant *left = evalConstMulExp(ctx->mulExp());
+        Constant *right = evalConstUnaryExp(ctx->unaryExp());
+        
+        bool isFloat = left->getType()->isFloatTy() || right->getType()->isFloatTy();
+        float lval = 0, rval = 0;
+        int lval_i = 0, rval_i = 0;
+
+        if (auto *lf = dynamic_cast<ConstantFP*>(left)) lval = lf->getValue();
+        else if (auto *li = dynamic_cast<ConstantInt*>(left)) lval = (float)li->getValue();
+        
+        if (auto *rf = dynamic_cast<ConstantFP*>(right)) rval = rf->getValue();
+        else if (auto *ri = dynamic_cast<ConstantInt*>(right)) rval = (float)ri->getValue();
+
+        if (isFloat) {
+             if (ctx->MUL()) return ConstantFP::get(lval * rval);
+             else if (ctx->DIV()) return ConstantFP::get(rval == 0 ? 0 : lval / rval);
+             else return ConstantFP::get(0); // Mod not supported for float
         }
-        if (ctx->DIV()) {
-            if (right == 0) return 0;
-            return left / right;
+        
+        lval_i = dynamic_cast<ConstantInt*>(left)->getValue();
+        rval_i = dynamic_cast<ConstantInt*>(right)->getValue();
+        
+        if (ctx->MUL()) return ConstantInt::get(lval_i * rval_i);
+        if (ctx->DIV()) return ConstantInt::get(rval_i == 0 ? 0 : lval_i / rval_i);
+        // Mod
+        int m = 0;
+        if (rval_i != 0) {
+             m = lval_i % rval_i;
         }
-        if (right == 0) return 0;
-        int mod = left % right;
-        if ((mod != 0) && ((mod < 0) != (right < 0))) {
-            mod += right;
-        }
-        return mod;
+        return ConstantInt::get(m);
     }
     return evalConstUnaryExp(ctx->unaryExp());
 }
 
-int CodeGenVisitor::evalConstUnaryExp(SysYParser::UnaryExpContext *ctx) {
+Constant *CodeGenVisitor::evalConstUnaryExp(SysYParser::UnaryExpContext *ctx) {
     if (ctx->primaryExp()) {
         return evalConstPrimaryExp(ctx->primaryExp());
     }
     if (ctx->unaryOp() && ctx->unaryExp()) {
-        int val = evalConstUnaryExp(ctx->unaryExp());
+        Constant *val = evalConstUnaryExp(ctx->unaryExp());
+        bool isFloat = val->getType()->isFloatTy();
+        
         if (ctx->unaryOp()->PLUS()) {
             return val;
         }
         if (ctx->unaryOp()->MINUS()) {
-            return -val;
+            if (isFloat) return ConstantFP::get(-dynamic_cast<ConstantFP*>(val)->getValue());
+            return ConstantInt::get(-dynamic_cast<ConstantInt*>(val)->getValue());
         }
         if (ctx->unaryOp()->NOT()) {
-            return val == 0 ? 1 : 0;
+            if (isFloat) return ConstantInt::get(dynamic_cast<ConstantFP*>(val)->getValue() == 0 ? 1 : 0);
+            return ConstantInt::get(dynamic_cast<ConstantInt*>(val)->getValue() == 0 ? 1 : 0);
         }
     }
-    return 0;
+    return ConstantInt::get(0);
 }
 
-int CodeGenVisitor::evalConstPrimaryExp(SysYParser::PrimaryExpContext *ctx) {
+Constant *CodeGenVisitor::evalConstPrimaryExp(SysYParser::PrimaryExpContext *ctx) {
     if (ctx->number()) {
         return evalConstNumber(ctx->number());
     }
@@ -902,63 +1116,76 @@ int CodeGenVisitor::evalConstPrimaryExp(SysYParser::PrimaryExpContext *ctx) {
     if (ctx->lVal()) {
         return evalConstLVal(ctx->lVal());
     }
-    return 0;
+    return ConstantInt::get(0);
 }
 
-int CodeGenVisitor::evalConstNumber(SysYParser::NumberContext *ctx) {
+Constant *CodeGenVisitor::evalConstNumber(SysYParser::NumberContext *ctx) {
+    if (ctx->FLOAT_CONST()) {
+        return ConstantFP::get(std::stof(ctx->FLOAT_CONST()->getText()));
+    }
     std::string txt;
     if (ctx->DEC_INT_CONST()) txt = ctx->DEC_INT_CONST()->getText();
     else if (ctx->OCT_INT_CONST()) txt = ctx->OCT_INT_CONST()->getText();
     else if (ctx->HEX_INT_CONST()) txt = ctx->HEX_INT_CONST()->getText();
     else txt = "0";
-    return parseIntLiteral(txt);
+    
+    int val = 0;
+    if (!txt.empty() && (txt.rfind("0x", 0) == 0 || txt.rfind("0X", 0) == 0)) {
+        val = std::stoi(txt.substr(2), nullptr, 16);
+    } else if (!txt.empty() && txt.size() > 1 && txt[0] == '0') {
+        val = std::stoi(txt.substr(1), nullptr, 8);
+    } else {
+        val = std::stoi(txt);
+    }
+    return ConstantInt::get(val);
 }
 
-int CodeGenVisitor::evalConstLVal(SysYParser::LValContext *ctx) {
-    if (!ctx) return 0;
+Constant *CodeGenVisitor::evalConstLVal(SysYParser::LValContext *ctx) {
+    if (!ctx) return ConstantInt::get(0);
     std::string ident = ctx->IDENT()->getText();
     Constant *constVal = lookupConstValue(ident);
     if (!constVal) {
         std::cerr << "Error: Non-constant variable '" << ident << "' in constant expression" << std::endl;
-        return 0;
+        return ConstantInt::get(0);
     }
 
     Constant *current = constVal;
     if (ctx->exp().empty()) {
-        if (auto *ci = dynamic_cast<ConstantInt *>(current)) {
-            return ci->getValue();
-        }
-        std::cerr << "Error: Array constant '" << ident << "' used without index" << std::endl;
-        return 0;
+        return current;
     }
 
+    // Array access
     for (auto *expCtx : ctx->exp()) {
-        int idx = evalConstExp(expCtx);
+        Constant *idxC = evalConstExp(expCtx);
+        int idx = 0;
+        if (auto *ci = dynamic_cast<ConstantInt*>(idxC)) idx = ci->getValue();
+        else if (auto *cf = dynamic_cast<ConstantFP*>(idxC)) idx = (int)cf->getValue();
+        
         if (auto *arr = dynamic_cast<ConstantArray *>(current)) {
             const auto &elems = arr->getElements();
             if (idx < 0 || static_cast<size_t>(idx) >= elems.size()) {
                 std::cerr << "Error: Array index out of bounds in const expression" << std::endl;
-                return 0;
+                return ConstantInt::get(0);
             }
             current = elems[idx];
         } else {
             std::cerr << "Error: Too many indices in const expression for '" << ident << "'" << std::endl;
-            return 0;
+            return ConstantInt::get(0);
         }
     }
 
-    if (auto *ci = dynamic_cast<ConstantInt *>(current)) {
-        return ci->getValue();
-    }
-    std::cerr << "Error: Non-scalar constant encountered in expression" << std::endl;
-    return 0;
+    return current;
 }
 
 std::vector<int> CodeGenVisitor::collectDimensions(const std::vector<SysYParser::ConstExpContext *> &dimCtxs) {
     std::vector<int> dims;
     dims.reserve(dimCtxs.size());
     for (auto *ctx : dimCtxs) {
-        dims.push_back(evalConstExp(ctx));
+        Constant *c = evalConstExp(ctx);
+        int val = 0;
+        if (auto *ci = dynamic_cast<ConstantInt*>(c)) val = ci->getValue();
+        else if (auto *cf = dynamic_cast<ConstantFP*>(c)) val = (int)cf->getValue();
+        dims.push_back(val);
     }
     return dims;
 }
@@ -975,6 +1202,9 @@ Constant *CodeGenVisitor::getZeroInitializer(Type *ty) {
     if (ty->isIntegerTy()) {
         return ConstantInt::get(ty, 0);
     }
+    if (ty->isFloatTy()) {
+        return ConstantFP::get(0.0f);
+    }
     if (ty->isArrayTy()) {
         auto *arrTy = static_cast<ArrayType *>(ty);
         std::vector<Constant *> elems;
@@ -989,11 +1219,19 @@ Constant *CodeGenVisitor::getZeroInitializer(Type *ty) {
 
 Constant *CodeGenVisitor::buildConstInitializer(Type *ty, SysYParser::ConstInitValContext *ctx) {
     if (!ty->isArrayTy()) {
-        int val = 0;
+        Constant *val = nullptr;
         if (ctx && ctx->constExp()) {
             val = evalConstExp(ctx->constExp());
         }
-        return ConstantInt::get(ty, val);
+        if (!val) return getZeroInitializer(ty);
+        
+        // Cast
+        if (ty->isIntegerTy() && val->getType()->isFloatTy()) {
+             return ConstantInt::get((int)dynamic_cast<ConstantFP*>(val)->getValue());
+        } else if (ty->isFloatTy() && val->getType()->isIntegerTy()) {
+             return ConstantFP::get((float)dynamic_cast<ConstantInt*>(val)->getValue());
+        }
+        return val;
     }
 
     auto *arrTy = static_cast<ArrayType *>(ty);
@@ -1008,8 +1246,16 @@ Constant *CodeGenVisitor::buildConstInitializer(Type *ty, SysYParser::ConstInitV
     }
 
     if (ctx->constExp()) {
-        Constant *first = buildConstInitializer(arrTy->getElementType(), ctx);
-        elements.push_back(first);
+        Constant *leaf = evalConstExp(ctx->constExp());
+        Constant *firstVal = nullptr;
+        // Cast leaf to element type
+        if (arrTy->getElementType()->isIntegerTy() && leaf->getType()->isFloatTy()) 
+            firstVal = ConstantInt::get((int)dynamic_cast<ConstantFP*>(leaf)->getValue());
+        else if (arrTy->getElementType()->isFloatTy() && leaf->getType()->isIntegerTy())
+            firstVal = ConstantFP::get((float)dynamic_cast<ConstantInt*>(leaf)->getValue());
+        else firstVal = leaf;
+        
+        elements.push_back(firstVal);
         for (unsigned i = 1; i < arrTy->getNumElements(); ++i) {
             elements.push_back(getZeroInitializer(arrTy->getElementType()));
         }
@@ -1054,11 +1300,19 @@ Constant *CodeGenVisitor::buildConstArrayFromScalars(Type *ty, const std::vector
 
 Constant *CodeGenVisitor::buildVarInitializer(Type *ty, SysYParser::InitValContext *ctx) {
     if (!ty->isArrayTy()) {
-        int val = 0;
+        Constant *val = nullptr;
         if (ctx && ctx->exp()) {
             val = evalConstExp(ctx->exp());
         }
-        return ConstantInt::get(ty, val);
+        
+        if (!val) return getZeroInitializer(ty);
+
+        if (ty->isIntegerTy() && val->getType()->isFloatTy()) {
+             return ConstantInt::get((int)dynamic_cast<ConstantFP*>(val)->getValue());
+        } else if (ty->isFloatTy() && val->getType()->isIntegerTy()) {
+             return ConstantFP::get((float)dynamic_cast<ConstantInt*>(val)->getValue());
+        }
+        return val;
     }
 
     auto *arrTy = static_cast<ArrayType *>(ty);
@@ -1129,9 +1383,9 @@ void CodeGenVisitor::emitLocalInitRecursive(Value *ptr, Type *ty, SysYParser::In
             val = std::any_cast<Value *>(visit(ctx->exp()));
         }
         if (!val) {
-            val = ConstantInt::get(0);
+            val = getZeroInitializer(ty);
         }
-        val = promoteToInt32(val);
+        val = castTo(val, ty, builder_.GetInsertBlock());
 
         std::vector<Value *> gepIdx;
         auto *ptrTy = dynamic_cast<PointerType *>(ptr->getType());
@@ -1213,7 +1467,10 @@ void CodeGenVisitor::emitConstInitializer(Value *ptr, Type *ty, Constant *init) 
 
 void CodeGenVisitor::emitConstInitRecursive(Value *ptr, Type *ty, Constant *init, std::vector<int> &indices) {
     if (!ty->isArrayTy()) {
-        Constant *val = init ? init : ConstantInt::get(ty, 0);
+        Constant *val = init;
+        if (!val) {
+            val = getZeroInitializer(ty);
+        }
 
         std::vector<Value *> gepIdx;
         auto *ptrTy = dynamic_cast<PointerType *>(ptr->getType());
@@ -1283,6 +1540,10 @@ Value *CodeGenVisitor::getArrayElementPtr(const SymbolInfo &info, SysYParser::LV
         return nullptr;
     }
 
+    if (info.type && info.type->isPointerTy()) {
+        basePtr = builder_.createLoad(info.type, basePtr);
+    }
+
     std::vector<Value *> indices;
 
     Type *symbolTy = info.type;
@@ -1344,7 +1605,7 @@ Value *CodeGenVisitor::adjustArgumentToParam(Value *arg, Type *paramTy) {
     }
 
     if (!paramTy->isPointerTy()) {
-        return arg;
+        return castTo(arg, paramTy, builder_.GetInsertBlock());
     }
 
     auto *paramPtrTy = static_cast<PointerType *>(paramTy);

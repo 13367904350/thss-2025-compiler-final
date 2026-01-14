@@ -157,14 +157,19 @@ private:
     void declareLibraryFunctions();
     
     // Helper: evaluate constant expression at compile time
-    int evalConstExp(SysYParser::AddExpContext *ctx);
-    int evalConstMulExp(SysYParser::MulExpContext *ctx);
-    int evalConstUnaryExp(SysYParser::UnaryExpContext *ctx);
-    int evalConstPrimaryExp(SysYParser::PrimaryExpContext *ctx);
-    int evalConstNumber(SysYParser::NumberContext *ctx);
-    int evalConstExp(SysYParser::ConstExpContext *ctx);
-    int evalConstExp(SysYParser::ExpContext *ctx);
-    int evalConstLVal(SysYParser::LValContext *ctx);
+    Constant *evalConstExp(SysYParser::AddExpContext *ctx);
+    Constant *evalConstMulExp(SysYParser::MulExpContext *ctx);
+    Constant *evalConstUnaryExp(SysYParser::UnaryExpContext *ctx);
+    Constant *evalConstPrimaryExp(SysYParser::PrimaryExpContext *ctx);
+    Constant *evalConstNumber(SysYParser::NumberContext *ctx);
+    Constant *evalConstExp(SysYParser::ConstExpContext *ctx);
+    Constant *evalConstExp(SysYParser::ExpContext *ctx);
+    Constant *evalConstLVal(SysYParser::LValContext *ctx);
+    
+    // Type helpers
+    Type *getUpgradedType(Type *t1, Type *t2);
+    Value *castTo(Value *val, Type *targetTy, BasicBlock *currBB);
+
     std::vector<int> collectDimensions(const std::vector<SysYParser::ConstExpContext *> &dimCtxs);
     Type *buildArrayType(Type *base, const std::vector<int> &dims);
     Constant *getZeroInitializer(Type *ty);

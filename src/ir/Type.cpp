@@ -12,6 +12,12 @@ public:
     std::string print() override { return "label"; }
 };
 
+class FloatType : public Type {
+public:
+    FloatType() : Type(FloatTyID) {}
+    std::string print() override { return "float"; }
+};
+
 Type *Type::getVoidTy() {
     static VoidType *void_ty = new VoidType();
     return void_ty;
@@ -20,6 +26,11 @@ Type *Type::getVoidTy() {
 Type *Type::getLabelTy() {
     static LabelType *label_ty = new LabelType();
     return label_ty;
+}
+
+Type *Type::getFloatTy() {
+    static FloatType *float_ty = new FloatType();
+    return float_ty;
 }
 
 Type *Type::getInt1Ty() {
@@ -40,6 +51,11 @@ Type *Type::getInt64Ty() {
 Type *Type::getInt32PtrTy() {
     static PointerType *int32_ptr_ty = new PointerType(getInt32Ty());
     return int32_ptr_ty;
+}
+
+Type *Type::getFloatPtrTy() {
+    static PointerType *float_ptr_ty = new PointerType(getFloatTy());
+    return float_ptr_ty;
 }
 
 std::string IntegerType::print() {
