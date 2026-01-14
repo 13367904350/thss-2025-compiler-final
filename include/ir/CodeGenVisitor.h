@@ -7,6 +7,7 @@
 #include "ir/Type.h"
 #include "ir/Constant.h"
 #include <map>
+#include <set>
 #include <vector>
 #include <string>
 #include <utility>
@@ -82,21 +83,23 @@ private:
     
     // Basic block counter for unique naming
     int bb_count_ = 0;
-    
-    // Variable name counter for generating unique IR names
-    std::map<std::string, int> var_name_counter_;
 
+    // Set of used names in the current function to ensure uniqueness
+    std::set<std::string> used_names_;
+    
     // Helper methods
-    std::string genName() { return "v" + std::to_string(++temp_count_); }
-    std::string genBBName(const std::string &prefix) { return prefix + std::to_string(++bb_count_); }
+    std::string genName() { return ".v" + std::to_string(++temp_count_); }
+    std::string genBBName(const std::string &prefix) { return getUniqueName(prefix + std::to_string(++bb_count_)); }
 
     // Generate unique IR variable name (for handling same-named variables in different scopes)
-    std::string genVarName(const std::string &baseName) {
-        int count = var_name_counter_[baseName]++;
-        if (count == 0) {
-            return baseName;
+    std::string getUniqueName(const std::string &baseName) {
+        std::string name = baseName;
+        int count = 1; // start suffix from 1 if collision
+        while (used_names_.count(name)) {
+            name = baseName + "." + std::to_string(count++);
         }
-        return baseName + "." + std::to_string(count);
+        used_names_.insert(name);
+        return name; // Fixed unique name
     }
 
     bool isInt1Type(Type *ty) {
@@ -173,8 +176,10 @@ private:
     void emitConstInitializer(Value *ptr, Type *ty, Constant *init);
     void emitConstInitRecursive(Value *ptr, Type *ty, Constant *init, std::vector<int> &indices);
     Value *promoteToInt32(Value *val);
+    Value *promoteToInt64(Value *val);
     Value *getArrayElementPtr(const SymbolInfo &info, SysYParser::LValContext *ctx, Type **elemTy);
     Value *adjustArgumentToParam(Value *arg, Type *paramTy);
     Constant *buildConstArrayFromScalars(Type *ty, const std::vector<SysYParser::ConstInitValContext *> &subInits, size_t &cursor);
     Constant *buildVarArrayFromScalars(Type *ty, const std::vector<SysYParser::InitValContext *> &subInits, size_t &cursor);
+    AllocaInst *createEntryBlockAlloca(Type *ty, const std::string &name = "");
 };

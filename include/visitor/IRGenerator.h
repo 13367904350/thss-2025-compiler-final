@@ -58,6 +58,7 @@ private:
     void emitConstInitRecursive(Value *ptr, Type *ty, Constant *init, std::vector<int> &indices);
     LValueInfo getLValueInfo(SysYParser::LValContext *ctx);
     Value *promoteToInt32(Value *val);
+    Value *promoteToInt64(Value *val);
 
     Module *module_;
     Function *current_func_ = nullptr;

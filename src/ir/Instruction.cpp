@@ -215,6 +215,15 @@ std::string ZExtInst::print() const {
     return "%" + getName() + " = zext " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + " to " + getType()->print();
 }
 
+SExtInst::SExtInst(Value *val, Type *ty, BasicBlock *parent)
+    : Instruction(ty, SExt, 1, parent) {
+    setOperand(0, val);
+}
+
+std::string SExtInst::print() const {
+    return "%" + getName() + " = sext " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + " to " + getType()->print();
+}
+
 GetElementPtrInst::GetElementPtrInst(Value *ptr, std::vector<Value *> idxs, BasicBlock *parent)
     : Instruction(computeGEPResultType(ptr, idxs), GetElementPtr, idxs.size() + 1, parent) {
     setOperand(0, ptr);

@@ -23,7 +23,8 @@ public:
         ICmp,
         Call,
         GetElementPtr,
-        ZExt
+        ZExt,
+        SExt
     };
 
     Instruction(Type *ty, OpID id, unsigned num_ops, BasicBlock *parent = nullptr);
@@ -120,6 +121,12 @@ public:
 class ZExtInst : public Instruction {
 public:
     ZExtInst(Value *val, Type *ty, BasicBlock *parent = nullptr);
+    std::string print() const override;
+};
+
+class SExtInst : public Instruction {
+public:
+    SExtInst(Value *val, Type *ty, BasicBlock *parent = nullptr);
     std::string print() const override;
 };
 

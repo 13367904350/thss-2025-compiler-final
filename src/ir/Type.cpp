@@ -32,6 +32,11 @@ Type *Type::getInt32Ty() {
     return int32_ty;
 }
 
+Type *Type::getInt64Ty() {
+    static IntegerType *int64_ty = new IntegerType(64);
+    return int64_ty;
+}
+
 Type *Type::getInt32PtrTy() {
     static PointerType *int32_ptr_ty = new PointerType(getInt32Ty());
     return int32_ptr_ty;

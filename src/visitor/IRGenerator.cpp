@@ -368,14 +368,14 @@ IRGenerator::LValueInfo IRGenerator::getLValueInfo(SysYParser::LValContext *ctx)
     Type *current_ty = sym->type;
 
     if (current_ty && current_ty->isArrayTy()) {
-        indices.push_back(ConstantInt::get(0));
+        indices.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
     }
 
     for (auto *exp_ctx : ctx->exp()) {
         Value *idx_val = asValue(visit(exp_ctx));
-        idx_val = promoteToInt32(idx_val);
+        idx_val = promoteToInt64(idx_val);
         if (!idx_val) {
-            idx_val = ConstantInt::get(0);
+            idx_val = ConstantInt::get(Type::getInt64Ty(), 0);
         }
         indices.push_back(idx_val);
 
@@ -404,6 +404,24 @@ Value *IRGenerator::promoteToInt32(Value *val) {
         auto *int_ty = static_cast<IntegerType *>(val->getType());
         if (int_ty->getBitWidth() == 1) {
             return builder_.createZExt(val, Type::getInt32Ty());
+        }
+    }
+    return val;
+}
+
+Value *IRGenerator::promoteToInt64(Value *val) {
+    if (!val) return nullptr;
+    Type *ty = val->getType();
+    if (ty->isIntegerTy()) {
+        auto *int_ty = static_cast<IntegerType *>(ty);
+        if (int_ty->getBitWidth() == 64) {
+            return val;
+        }
+        if (int_ty->getBitWidth() == 32) {
+             return builder_.createSExt(val, Type::getInt64Ty());
+        }
+        if (int_ty->getBitWidth() == 1) {
+             return builder_.createZExt(val, Type::getInt64Ty()); 
         }
     }
     return val;

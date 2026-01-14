@@ -7,6 +7,7 @@
 class Constant : public User {
 public:
     Constant(Type *ty, const std::string &name = "") : User(ty, name) {}
+    virtual bool isZero() const { return false; }
 };
 
 class ConstantInt : public Constant {
@@ -22,6 +23,10 @@ public:
     }
 
     int getValue() const { return val_; }
+
+    virtual bool isZero() const override {
+        return val_ == 0;
+    }
 
     std::string print() const override {
         return std::to_string(val_);
@@ -46,6 +51,13 @@ public:
 
     ArrayType *getArrayType() const { return static_cast<ArrayType *>(getType()); }
     const std::vector<Constant *> &getElements() const { return elements_; }
+
+    virtual bool isZero() const override {
+        for (auto *elem : elements_) {
+            if (!elem->isZero()) return false;
+        }
+        return true;
+    }
 
     std::string print() const override {
         std::string s = "[";

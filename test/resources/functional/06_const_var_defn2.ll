@@ -14,7 +14,6 @@ declare void @putarray(i32, i32*)
 
 define i32 @main() {
 entry:
-  %v1 = load i32, i32* @b
-  ret i32 %v1
+  ret i32 5
 }
 

@@ -31,6 +31,7 @@ public:
     static Type *getLabelTy();
     static Type *getInt1Ty();
     static Type *getInt32Ty();
+    static Type *getInt64Ty();
     static Type *getInt32PtrTy();
 
     virtual std::string print() = 0;

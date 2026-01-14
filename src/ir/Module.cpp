@@ -11,7 +11,7 @@ std::string GlobalVariable::print() const {
     // Get the element type from pointer type
     Type *elemTy = static_cast<PointerType *>(getType())->getElementType();
     std::string s = "@" + getName() + " = " + (is_const_ ? "constant " : "global ") + elemTy->print() + " ";
-    if (init_val_) {
+    if (init_val_ && !init_val_->isZero()) {
         s += init_val_->print();
     } else {
         s += "zeroinitializer";

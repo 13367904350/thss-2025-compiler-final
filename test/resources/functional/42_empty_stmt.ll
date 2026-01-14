@@ -12,11 +12,11 @@ declare void @putarray(i32, i32*)
 
 define i32 @main() {
 entry:
-  %t0 = alloca i32
-  store i32 10, i32* %t0
-  %v1 = load i32, i32* %t0
-  %v2 = mul i32 %v1, 2
-  %v3 = add i32 %v2, 1
-  ret i32 %v3
+  %a = alloca i32
+  store i32 10, i32* %a
+  %.v1 = load i32, i32* %a
+  %.v2 = mul i32 %.v1, 2
+  %.v3 = add i32 %.v2, 1
+  ret i32 %.v3
 }
 

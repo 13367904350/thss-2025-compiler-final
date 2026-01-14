@@ -129,6 +129,12 @@ public:
         return inst;
     }
 
+    SExtInst *createSExt(Value *val, Type *ty) {
+        auto *inst = new SExtInst(val, ty, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
     GetElementPtrInst *createGEP(Value *ptr, std::vector<Value *> idxs) {
         auto *inst = new GetElementPtrInst(ptr, idxs, insert_point_);
         inst->setName(getNextName());

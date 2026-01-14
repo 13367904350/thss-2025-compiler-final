@@ -13,8 +13,7 @@ declare void @putarray(i32, i32*)
 
 define i32 @main() {
 entry:
-  %v1 = load i32, i32* @a
-  %v2 = mul i32 %v1, 5
-  ret i32 %v2
+  %.v1 = mul i32 5, 5
+  ret i32 %.v1
 }
 

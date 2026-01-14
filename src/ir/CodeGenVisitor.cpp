@@ -58,7 +58,7 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
     // Reset counters for each function
     temp_count_ = 0;
     bb_count_ = 0;
-    var_name_counter_.clear();
+    used_names_.clear();
 
     // Determine function name and return type
     std::string name = ctx->IDENT()->getText();
@@ -102,6 +102,7 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
     // Create entry block
     BasicBlock *entry = BasicBlock::create("entry", f);
     builder_.setInsertPoint(entry);
+    used_names_.insert("entry");
 
     // Push new scope for function parameters
     pushScope();
@@ -110,9 +111,13 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
     auto &args = f->getArgs();
     for (size_t i = 0; i < args.size(); ++i) {
         args[i]->setName(paramNames[i]);
+        
+        // Register parameter name to avoid conflict with local variables
+        used_names_.insert(paramNames[i]);
 
         if (paramTypes[i]->isIntegerTy()) {
-            AllocaInst *alloca = builder_.createAlloca(Type::getInt32Ty());
+            std::string addrName = getUniqueName(paramNames[i] + ".addr");
+            AllocaInst *alloca = createEntryBlockAlloca(Type::getInt32Ty(), addrName);
             builder_.createStore(args[i], alloca);
             addSymbol(paramNames[i], alloca, Type::getInt32Ty());
         } else {
@@ -188,7 +193,7 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
         auto *gv = new GlobalVariable(varName, module_, varTy, false, init);
         addSymbol(varName, gv, varTy);
     } else {
-        AllocaInst *alloca = builder_.createAlloca(varTy);
+        AllocaInst *alloca = createEntryBlockAlloca(varTy, getUniqueName(varName));
         addSymbol(varName, alloca, varTy);
 
         if (ctx->initVal()) {
@@ -228,7 +233,7 @@ std::any CodeGenVisitor::visitConstDef(SysYParser::ConstDefContext *ctx) {
         auto *gv = new GlobalVariable(varName, module_, varTy, true, constInit);
         addSymbol(varName, gv, varTy, true, constInit);
     } else {
-        AllocaInst *alloca = builder_.createAlloca(varTy);
+        AllocaInst *alloca = createEntryBlockAlloca(varTy, getUniqueName(varName));
         addSymbol(varName, alloca, varTy, true, constInit);
         emitConstInitializer(alloca, varTy, constInit);
     }
@@ -505,8 +510,7 @@ std::any CodeGenVisitor::visitLAndExp(SysYParser::LAndExpContext *ctx) {
     // Short-circuit evaluation: if left is false, skip right
     if (ctx->lAndExp()) {
         // Create result variable at function entry (before any branches)
-        AllocaInst *resultVar = builder_.createAlloca(Type::getInt32Ty());
-        resultVar->setName(genName());
+        AllocaInst *resultVar = createEntryBlockAlloca(Type::getInt32Ty(), genName());
         
         // Initialize to 0 (false case)
         ConstantInt *zero = ConstantInt::get(0);
@@ -566,8 +570,7 @@ std::any CodeGenVisitor::visitLOrExp(SysYParser::LOrExpContext *ctx) {
     // Short-circuit evaluation: if left is true, skip right
     if (ctx->lOrExp()) {
         // Create result variable
-        AllocaInst *resultVar = builder_.createAlloca(Type::getInt32Ty());
-        resultVar->setName(genName());
+        AllocaInst *resultVar = createEntryBlockAlloca(Type::getInt32Ty(), genName());
         
         // Initialize to 1 (true case)
         ConstantInt *one = ConstantInt::get(1);
@@ -755,8 +758,12 @@ std::any CodeGenVisitor::visitLVal(SysYParser::LValContext *ctx) {
 
     // For simple variable (no array indexing), load the value
     if (ctx->LBRACK().empty()) {
+        if (info->isConst && info->constValue) {
+             return static_cast<Value *>(info->constValue);
+        }
+
         if (info->type && info->type->isArrayTy()) {
-            std::vector<Value *> idx = {ConstantInt::get(0), ConstantInt::get(0)};
+            std::vector<Value *> idx = {ConstantInt::get(Type::getInt64Ty(), 0), ConstantInt::get(Type::getInt64Ty(), 0)};
             Value *ptr = builder_.createGEP(info->value, idx);
             ptr->setName(genName());
             return ptr;
@@ -1129,10 +1136,10 @@ void CodeGenVisitor::emitLocalInitRecursive(Value *ptr, Type *ty, SysYParser::In
         std::vector<Value *> gepIdx;
         auto *ptrTy = dynamic_cast<PointerType *>(ptr->getType());
         if (ptrTy && ptrTy->getElementType()->isArrayTy()) {
-            gepIdx.push_back(ConstantInt::get(0));
+            gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
         }
         for (int idx : indices) {
-            gepIdx.push_back(ConstantInt::get(idx));
+            gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), idx));
         }
 
         Value *destPtr = gepIdx.empty() ? ptr : builder_.createGEP(ptr, gepIdx);
@@ -1211,10 +1218,10 @@ void CodeGenVisitor::emitConstInitRecursive(Value *ptr, Type *ty, Constant *init
         std::vector<Value *> gepIdx;
         auto *ptrTy = dynamic_cast<PointerType *>(ptr->getType());
         if (ptrTy && ptrTy->getElementType()->isArrayTy()) {
-            gepIdx.push_back(ConstantInt::get(0));
+            gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
         }
         for (int idx : indices) {
-            gepIdx.push_back(ConstantInt::get(idx));
+            gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), idx));
         }
 
         Value *destPtr = gepIdx.empty() ? ptr : builder_.createGEP(ptr, gepIdx);
@@ -1252,6 +1259,24 @@ Value *CodeGenVisitor::promoteToInt32(Value *val) {
     return val;
 }
 
+Value *CodeGenVisitor::promoteToInt64(Value *val) {
+    if (!val) return nullptr;
+    Type *ty = val->getType();
+    if (ty->isIntegerTy()) {
+        auto *int_ty = static_cast<IntegerType *>(ty);
+        if (int_ty->getBitWidth() == 64) {
+            return val;
+        }
+        if (int_ty->getBitWidth() == 32) {
+             return builder_.createSExt(val, Type::getInt64Ty());
+        }
+        if (int_ty->getBitWidth() == 1) {
+             return builder_.createZExt(val, Type::getInt64Ty()); 
+        }
+    }
+    return val;
+}
+
 Value *CodeGenVisitor::getArrayElementPtr(const SymbolInfo &info, SysYParser::LValContext *ctx, Type **elemTy) {
     Value *basePtr = info.value;
     if (!basePtr) {
@@ -1278,14 +1303,14 @@ Value *CodeGenVisitor::getArrayElementPtr(const SymbolInfo &info, SysYParser::LV
     bool isPointerSymbol = symbolTy && symbolTy->isPointerTy() && !originatesFromAggregate;
 
     if ((!isPointerSymbol) && currentTy && currentTy->isArrayTy()) {
-        indices.push_back(ConstantInt::get(0));
+        indices.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
     }
 
     for (auto *expCtx : ctx->exp()) {
         Value *idxVal = std::any_cast<Value *>(visit(expCtx));
-        idxVal = promoteToInt32(idxVal);
+        idxVal = promoteToInt64(idxVal);
         if (!idxVal) {
-            idxVal = ConstantInt::get(0);
+            idxVal = ConstantInt::get(Type::getInt64Ty(), 0);
         }
         indices.push_back(idxVal);
 
@@ -1342,17 +1367,57 @@ Value *CodeGenVisitor::adjustArgumentToParam(Value *arg, Type *paramTy) {
     std::vector<Value *> gepIdx;
     Type *current = argElem;
     while (current && current->isArrayTy()) {
-        gepIdx.push_back(ConstantInt::get(0));
+        gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
         current = static_cast<ArrayType *>(current)->getElementType();
 
         if (current == expectedElem) {
             if (expectedElem->isArrayTy()) {
                 return builder_.createGEP(arg, gepIdx);
             }
-            gepIdx.push_back(ConstantInt::get(0));
+            gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
             return builder_.createGEP(arg, gepIdx);
         }
     }
 
     return arg;
+}
+
+AllocaInst *CodeGenVisitor::createEntryBlockAlloca(Type *ty, const std::string &name) {
+    if (!current_function_) return nullptr;
+    auto &blocks = current_function_->getBasicBlocks();
+    if (blocks.empty()) {
+        BasicBlock *entry = BasicBlock::create("entry", current_function_);
+    }
+    BasicBlock *entry = blocks.front();
+    AllocaInst *alloc = new AllocaInst(ty, entry);
+    // Move to front of block to ensure it dominates all uses and doesn't grow stack in loops
+    auto &insts = entry->getInstructions();
+    if (insts.size() > 1) {
+        insts.pop_back();
+        insts.push_front(alloc);
+    }
+    
+    // Ensure name uniqueness in the entry block
+    std::string finalName = name;
+    if (finalName.length() > 50) {
+        finalName = finalName.substr(0, 50);
+    }
+    if (!finalName.empty()) {
+        int suffix = 1;
+        bool exists;
+        do {
+            exists = false;
+            for (auto *i : insts) {
+                if (i != alloc && i->getName() == finalName) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists) {
+                finalName = name + "." + std::to_string(suffix++);
+            }
+        } while (exists);
+        alloc->setName(finalName);
+    }
+    return alloc;
 }
