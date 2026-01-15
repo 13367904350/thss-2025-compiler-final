@@ -41,8 +41,8 @@ while.body2:
   store i32 0, i32* %j
   br label %while.cond4
 while.end3:
-  %.v19 = load float, float* %sum
-  ret float %.v19
+  %.v21 = load float, float* %sum
+  ret float %.v21
 while.cond4:
   %.v6 = load i32, i32* %j
   %.v7 = icmp slt i32 %.v6, 3
@@ -51,23 +51,22 @@ while.cond4:
   br i1 %.v9, label %while.body5, label %while.end6
 while.body5:
   %.v10 = load float, float* %sum
-  %t10 = load [3 x float]*, [3 x float]** %a.addr
   %.v11 = load i32, i32* %i
-  %t12 = sext i32 %.v11 to i64
-  %.v12 = load i32, i32* %j
-  %t14 = sext i32 %.v12 to i64
-  %t15 = getelementptr [3 x float], [3 x float]* %t10, i64 %t12, i64 %t14
-  %.v13 = load float, float* %t15
-  %.v14 = fadd float %.v10, %.v13
-  store float %.v14, float* %sum
-  %.v15 = load i32, i32* %j
-  %.v16 = add i32 %.v15, 1
-  store i32 %.v16, i32* %j
+  %.v12 = load [3 x float]*, [3 x float]** %a.addr
+  %.v13 = getelementptr [3 x float], [3 x float]* %.v12, i32 %.v11
+  %.v14 = load i32, i32* %j
+  %t14 = getelementptr [3 x float], [3 x float]* %.v13, i64 0, i32 %.v14
+  %.v15 = load float, float* %t14
+  %.v16 = fadd float %.v10, %.v15
+  store float %.v16, float* %sum
+  %.v17 = load i32, i32* %j
+  %.v18 = add i32 %.v17, 1
+  store i32 %.v18, i32* %j
   br label %while.cond4
 while.end6:
-  %.v17 = load i32, i32* %i
-  %.v18 = add i32 %.v17, 1
-  store i32 %.v18, i32* %i
+  %.v19 = load i32, i32* %i
+  %.v20 = add i32 %.v19, 1
+  store i32 %.v20, i32* %i
   br label %while.cond1
 }
 
@@ -75,30 +74,24 @@ define i32 @main() {
 entry:
   %res = alloca float
   %arr = alloca [2 x [3 x float]]
-  %t23 = sext i32 0 to i64
-  %t24 = sext i32 0 to i64
-  %t25 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i64 %t23, i64 %t24
-  store float 0x3FF0000000000000, float* %t25
-  %t26 = sext i32 0 to i64
-  %t27 = sext i32 1 to i64
-  %t28 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i64 %t26, i64 %t27
-  store float 0x4000000000000000, float* %t28
-  %t29 = sext i32 0 to i64
-  %t30 = sext i32 2 to i64
-  %t31 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i64 %t29, i64 %t30
-  store float 0x4008000000000000, float* %t31
-  %t32 = sext i32 1 to i64
-  %t33 = sext i32 0 to i64
-  %t34 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i64 %t32, i64 %t33
-  store float 0x4010000000000000, float* %t34
-  %t35 = sext i32 1 to i64
-  %t36 = sext i32 1 to i64
-  %t37 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i64 %t35, i64 %t36
-  store float 0x4014000000000000, float* %t37
-  %t38 = sext i32 1 to i64
-  %t39 = sext i32 2 to i64
-  %t40 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i64 %t38, i64 %t39
-  store float 0x4018000000000000, float* %t40
+  %t22 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i32 0
+  %t23 = getelementptr [3 x float], [3 x float]* %t22, i64 0, i32 0
+  store float 0x3FF0000000000000, float* %t23
+  %t24 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i32 0
+  %t25 = getelementptr [3 x float], [3 x float]* %t24, i64 0, i32 1
+  store float 0x4000000000000000, float* %t25
+  %t26 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i32 0
+  %t27 = getelementptr [3 x float], [3 x float]* %t26, i64 0, i32 2
+  store float 0x4008000000000000, float* %t27
+  %t28 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i32 1
+  %t29 = getelementptr [3 x float], [3 x float]* %t28, i64 0, i32 0
+  store float 0x4010000000000000, float* %t29
+  %t30 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i32 1
+  %t31 = getelementptr [3 x float], [3 x float]* %t30, i64 0, i32 1
+  store float 0x4014000000000000, float* %t31
+  %t32 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i32 1
+  %t33 = getelementptr [3 x float], [3 x float]* %t32, i64 0, i32 2
+  store float 0x4018000000000000, float* %t33
   %.v1 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i64 0
   %.v2 = call float @sum_2d([3 x float]* %.v1, i32 2)
   store float %.v2, float* %res
@@ -115,10 +108,9 @@ if.else2:
   br label %if.end3
 if.end3:
   call void @putch(i32 10)
-  %t46 = sext i32 1 to i64
-  %t47 = sext i32 0 to i64
-  %t48 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i64 %t46, i64 %t47
-  %.v7 = load float, float* %t48
+  %t39 = getelementptr [2 x [3 x float]], [2 x [3 x float]]* %arr, i64 0, i32 1
+  %t40 = getelementptr [3 x float], [3 x float]* %t39, i64 0, i32 0
+  %.v7 = load float, float* %t40
   %.v8 = fcmp oeq float %.v7, 0x4010000000000000
   %.v9 = zext i1 %.v8 to i32
   %.v10 = icmp ne i32 %.v9, 0

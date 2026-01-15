@@ -24,9 +24,11 @@ public:
 
     void addFunction(Function *f);
     void addGlobalVariable(GlobalVariable *g);
+    void addStructDefinition(StructType *st);
 
     std::list<Function *> &getFunctions() { return functions_; }
     std::list<GlobalVariable *> &getGlobalVariables() { return global_list_; }
+    std::list<StructType *> &getStructList() { return struct_list_; }
 
     std::string print() const;
 
@@ -34,4 +36,5 @@ private:
     std::string name_;
     std::list<Function *> functions_;
     std::list<GlobalVariable *> global_list_;
+    std::list<StructType *> struct_list_;
 };

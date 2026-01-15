@@ -23,6 +23,8 @@ public:
 
     virtual std::any visitDecl(SysYParser::DeclContext *context) = 0;
 
+    virtual std::any visitStructDef(SysYParser::StructDefContext *context) = 0;
+
     virtual std::any visitConstDecl(SysYParser::ConstDeclContext *context) = 0;
 
     virtual std::any visitBType(SysYParser::BTypeContext *context) = 0;
@@ -57,6 +59,8 @@ public:
 
     virtual std::any visitIfStmt(SysYParser::IfStmtContext *context) = 0;
 
+    virtual std::any visitForStmt(SysYParser::ForStmtContext *context) = 0;
+
     virtual std::any visitWhileStmt(SysYParser::WhileStmtContext *context) = 0;
 
     virtual std::any visitBreakStmt(SysYParser::BreakStmtContext *context) = 0;
@@ -65,11 +69,21 @@ public:
 
     virtual std::any visitReturnStmt(SysYParser::ReturnStmtContext *context) = 0;
 
+    virtual std::any visitForInitAssign(SysYParser::ForInitAssignContext *context) = 0;
+
+    virtual std::any visitForInitExp(SysYParser::ForInitExpContext *context) = 0;
+
     virtual std::any visitExp(SysYParser::ExpContext *context) = 0;
 
     virtual std::any visitCond(SysYParser::CondContext *context) = 0;
 
-    virtual std::any visitLVal(SysYParser::LValContext *context) = 0;
+    virtual std::any visitLValArray(SysYParser::LValArrayContext *context) = 0;
+
+    virtual std::any visitLValId(SysYParser::LValIdContext *context) = 0;
+
+    virtual std::any visitLValDeref(SysYParser::LValDerefContext *context) = 0;
+
+    virtual std::any visitLValMember(SysYParser::LValMemberContext *context) = 0;
 
     virtual std::any visitPrimaryExp(SysYParser::PrimaryExpContext *context) = 0;
 

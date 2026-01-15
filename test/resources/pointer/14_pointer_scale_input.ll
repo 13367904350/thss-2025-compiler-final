@@ -40,18 +40,18 @@ while.body2:
   %.v6 = load i32*, i32** %p.addr
   %.v7 = load i32, i32* %i
   %t7 = sext i32 %.v7 to i64
-  %.v8 = getelementptr i32, i32* %.v6, i64 %t7
-  %.v9 = load i32, i32* %.v8
-  %.v10 = load i32, i32* %k.addr
-  %.v11 = mul i32 %.v9, %.v10
-  %.v12 = load i32*, i32** %p.addr
-  %.v13 = load i32, i32* %i
-  %t14 = sext i32 %.v13 to i64
-  %.v14 = getelementptr i32, i32* %.v12, i64 %t14
-  store i32 %.v11, i32* %.v14
-  %.v15 = load i32, i32* %i
-  %.v16 = add i32 %.v15, 1
-  store i32 %.v16, i32* %i
+  %.v9 = getelementptr i32, i32* %.v6, i64 %t7
+  %.v10 = load i32, i32* %.v9
+  %.v11 = load i32, i32* %k.addr
+  %.v12 = mul i32 %.v10, %.v11
+  %.v13 = load i32*, i32** %p.addr
+  %.v14 = load i32, i32* %i
+  %t14 = sext i32 %.v14 to i64
+  %.v16 = getelementptr i32, i32* %.v13, i64 %t14
+  store i32 %.v12, i32* %.v16
+  %.v17 = load i32, i32* %i
+  %.v18 = add i32 %.v17, 1
+  store i32 %.v18, i32* %i
   br label %while.cond1
 while.end3:
   ret void

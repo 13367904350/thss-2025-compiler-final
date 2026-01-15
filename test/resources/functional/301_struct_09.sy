@@ -1,0 +1,32 @@
+
+struct Point {
+  int x;
+  int y;
+};
+
+struct Rect {
+  struct Point p1;
+  struct Point p2;
+};
+
+struct Node {
+  int val;
+  int next;
+};
+
+struct Data {
+  int arr[10];
+  float f;
+};
+
+struct Mixed {
+  int a;
+  float b;
+  int c;
+};
+    
+int main() {
+          struct Point pts[2] = {{1,1}, {2,2}};
+          if (pts[1].x == 2) return 0;
+          return 1;
+        }

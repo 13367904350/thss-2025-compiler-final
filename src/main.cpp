@@ -11,8 +11,8 @@
 #include "ir/Type.h"
 #include "ir/Constant.h"
 #include "ir/IRBuilder.h"
-#include "visitor/IRGenerator.h"
 #include "ir/CodeGenVisitor.h"
+
 
 using namespace antlr4;
 

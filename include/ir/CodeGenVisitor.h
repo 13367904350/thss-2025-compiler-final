@@ -6,12 +6,13 @@
 #include "ir/IRBuilder.h"
 #include "ir/Type.h"
 #include "ir/Constant.h"
+#include <cstddef>
+#include <functional>
 #include <map>
 #include <set>
-#include <vector>
 #include <string>
 #include <utility>
-#include <cstddef>
+#include <vector>
 
 class CodeGenVisitor : public SysYParserBaseVisitor {
 public:
@@ -33,9 +34,11 @@ public:
     virtual std::any visitAssignStmt(SysYParser::AssignStmtContext *ctx) override;
     virtual std::any visitReturnStmt(SysYParser::ReturnStmtContext *ctx) override;
     virtual std::any visitIfStmt(SysYParser::IfStmtContext *ctx) override;
+    virtual std::any visitForStmt(SysYParser::ForStmtContext *ctx) override;
     virtual std::any visitWhileStmt(SysYParser::WhileStmtContext *ctx) override;
     virtual std::any visitBreakStmt(SysYParser::BreakStmtContext *ctx) override;
     virtual std::any visitContinueStmt(SysYParser::ContinueStmtContext *ctx) override;
+    virtual std::any visitStructDef(SysYParser::StructDefContext *ctx) override;
 
     // Condition expressions
     virtual std::any visitCond(SysYParser::CondContext *ctx) override;
@@ -51,10 +54,19 @@ public:
     virtual std::any visitUnaryExp(SysYParser::UnaryExpContext *ctx) override;
     virtual std::any visitPrimaryExp(SysYParser::PrimaryExpContext *ctx) override;
     virtual std::any visitNumber(SysYParser::NumberContext *ctx) override;
-    virtual std::any visitLVal(SysYParser::LValContext *ctx) override;
+    
+    // LValues
+    virtual std::any visitLValId(SysYParser::LValIdContext *ctx) override;
+    virtual std::any visitLValArray(SysYParser::LValArrayContext *ctx) override;
+    virtual std::any visitLValMember(SysYParser::LValMemberContext *ctx) override;
+    virtual std::any visitLValDeref(SysYParser::LValDerefContext *ctx) override;
 
     // Constant expression evaluation
     virtual std::any visitConstExp(SysYParser::ConstExpContext *ctx) override;
+
+    // For statement initialization
+    virtual std::any visitForInitAssign(SysYParser::ForInitAssignContext *ctx) override;
+    virtual std::any visitForInitExp(SysYParser::ForInitExpContext *ctx) override;
 
 private:
     struct SymbolInfo {
@@ -87,19 +99,35 @@ private:
     // Set of used names in the current function to ensure uniqueness
     std::set<std::string> used_names_;
     
+    // Named struct types
+    std::map<std::string, StructType *> struct_types_;
+
+    // Map struct name -> (member name -> index)
+    std::map<std::string, std::map<std::string, int>> struct_member_indices_;
+
     // Helper methods
     std::string genName() { return ".v" + std::to_string(++temp_count_); }
     std::string genBBName(const std::string &prefix) { return getUniqueName(prefix + std::to_string(++bb_count_)); }
 
     // Generate unique IR variable name (for handling same-named variables in different scopes)
-    std::string getUniqueName(const std::string &baseName) {
-        std::string name = baseName;
-        int count = 1; // start suffix from 1 if collision
-        while (used_names_.count(name)) {
-            name = baseName + "." + std::to_string(count++);
+    std::string getUniqueName(const std::string &originalName) {
+        std::string baseName = originalName;
+        if (baseName.length() > 64) {
+            size_t hash = std::hash<std::string>{}(baseName);
+            baseName = baseName.substr(0, 32) + "_" + std::to_string(hash);
         }
+
+        if (used_names_.find(baseName) == used_names_.end()) {
+            used_names_.insert(baseName);
+            return baseName;
+        }
+        std::string name;
+        int count = 1;
+        do {
+            name = baseName + "." + std::to_string(count++);
+        } while (used_names_.find(name) != used_names_.end());
         used_names_.insert(name);
-        return name; // Fixed unique name
+        return name;
     }
 
     bool isInt1Type(Type *ty) {

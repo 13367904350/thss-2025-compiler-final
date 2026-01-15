@@ -1,6 +1,7 @@
 #include "ir/Instruction.h"
 #include "ir/BasicBlock.h"
 #include "ir/Function.h"
+#include "ir/Constant.h" // For ConstantInt access
 #include <iostream>
 
 static Type *computeGEPResultType(Value *ptr, const std::vector<Value *> &idxs) {
@@ -11,6 +12,17 @@ static Type *computeGEPResultType(Value *ptr, const std::vector<Value *> &idxs) 
             result_ty = static_cast<ArrayType *>(result_ty)->getElementType();
         } else if (result_ty->isPointerTy()) {
             result_ty = static_cast<PointerType *>(result_ty)->getElementType();
+        } else if (result_ty->isStructTy()) {
+            // Need to know the index value to know which element to select.
+            auto *idx_val = idxs[i];
+            if (auto *const_idx = dynamic_cast<ConstantInt *>(idx_val)) {
+                int index = const_idx->getValue();
+                result_ty = static_cast<StructType *>(result_ty)->getElementType(index);
+            } else {
+                std::cerr << "Error: GEP index into struct must be constant" << std::endl;
+                // If not constant, we can't determine type at compile time easily with this structure?
+                // Actually in LLVM, struct indices MUST be constants.
+            }
         }
     }
     return PointerType::get(result_ty);

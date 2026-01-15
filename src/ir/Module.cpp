@@ -27,8 +27,21 @@ void Module::addGlobalVariable(GlobalVariable *g) {
     global_list_.push_back(g);
 }
 
+void Module::addStructDefinition(StructType *st) {
+    struct_list_.push_back(st);
+}
+
 std::string Module::print() const {
     std::string s;
+    for (auto st : struct_list_) {
+        s += "%struct." + st->getName() + " = type { ";
+        for (unsigned i = 0; i < st->getNumElements(); ++i) {
+             s += st->getElementType(i)->print();
+             if (i < st->getNumElements() - 1)
+                 s += ", ";
+        }
+        s += " }\n";
+    }
     for (auto g : global_list_) {
         s += g->print() + "\n";
     }

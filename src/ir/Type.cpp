@@ -92,3 +92,25 @@ PointerType *PointerType::get(Type *contained) {
 std::string PointerType::print() {
     return contained_->print() + "*";
 }
+
+StructType *StructType::get(std::vector<Type *> elements) {
+    return new StructType(elements);
+}
+
+StructType *StructType::create(std::vector<Type *> elements, std::string name) {
+    return new StructType(elements, name);
+}
+
+std::string StructType::print() {
+    if (!name_.empty()) {
+        return "%struct." + name_;
+    }
+    std::string s = "{ ";
+    for (size_t i = 0; i < elements_.size(); ++i) {
+        s += elements_[i]->print();
+        if (i < elements_.size() - 1)
+            s += ", ";
+    }
+    s += " }";
+    return s;
+}

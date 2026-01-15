@@ -1,0 +1,903 @@
+\documentclass[twocolumn, a4paper, 10pt]{ctexart}
+
+%===========================================================
+% 1. 宏包配置
+%===========================================================
+\usepackage[top=2.5cm, bottom=2.5cm, left=2cm, right=2cm]{geometry} % 页边距
+\usepackage{graphicx}       % 图片支持
+\usepackage{float}          % 浮动体控制
+\usepackage{booktabs}       % 专业三线表
+\usepackage{listings}       % 代码高亮
+\usepackage{xcolor}         % 颜色支持
+\usepackage{amsmath}        % 数学公式
+\usepackage{hyperref}       % 超链接
+\usepackage{fancyhdr}       % 页眉页脚
+\usepackage{titlesec}       % 标题定制
+\usepackage{caption}        % 图表标题
+\usepackage{stfloats}       % 双栏浮动体支持
+\usepackage{abstract}       % 摘要格式
+\usepackage{longtable}      % 支持跨页长表格
+\usepackage{tikz}           % 【修复】引入 TikZ 绘图包
+\usetikzlibrary{shapes.geometric,arrows, positioning} % 【修复】引入 TikZ 图形库
+\usepackage{longtable} % 必须在导言区引用此宏包
+\usepackage{booktabs}  % 用于 toprule/midrule/bottomrule
+
+%===========================================================
+% 2. 样式细节设置
+%===========================================================
+
+% --- 代码高亮样式 ---
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codeblue}{rgb}{0.05, 0.2, 0.6}
+\definecolor{backcolour}{rgb}{0.96,0.96,0.96}
+\renewcommand{\arraystretch}{1.4}
+\lstset{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{codeblue}\bfseries,
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{purple},
+    basicstyle=\ttfamily\footnotesize, 
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=4,
+    frame=lines,            % 上下边框
+    framerule=0.5pt,
+}
+
+% --- 页眉页脚设置 ---
+\pagestyle{fancy}
+\fancyhf{} 
+\fancyhead[L]{\footnotesize \textbf{SysY 编译器拓展研究文档}} % 左页眉
+\fancyhead[R]{\footnotesize \leftmark}                        % 右页眉：当前一级标题
+\fancyfoot[C]{\thepage}                                       % 页脚：页码
+\renewcommand{\headrulewidth}{0.5pt}
+
+% --- 标题样式 ---
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\small\bfseries}{\thesubsubsection}{1em}{}
+
+%===========================================================
+% 3. 文档元数据
+%===========================================================
+\title{\textbf{\huge SysY 编译器拓展研究文档}}
+\author{
+    \textbf{小组成员}\\
+    简晨浩 \quad 诸宇航 \quad 杨锦义 \quad 王煜鹏
+}
+\date{\today}
+
+%===========================================================
+% 正文开始
+%===========================================================
+\begin{document}
+
+% --- 首页：标题与摘要 (跨栏) ---
+\twocolumn[
+    \begin{@twocolumnfalse}
+        \maketitle
+        \begin{abstract}
+            \normalsize
+            \setlength{\parindent}{2em}
+            本报告总结了我们小组在 SysY 编译器中增加浮点数、指针、For循环与结构体支持的实现过程。针对浮点数，我们重点解决了整型与浮点数的混合运算、自动类型转换以及在 \texttt{if/while} 条件中的布尔判断问题。针对指针，我们实现了取地址（$\&$）与解引用（$*$）操作，并处理了指针与数组在函数传参时的退化问题。针对 For 循环，我们构建了包含四种基本块的标准控制流结构，并正确处理了 \texttt{break} 与 \texttt{continue}。针对结构体，我们实现了类型的定义与注册，以及基于偏移量的成员访问机制。通过对类型系统和 IR 生成逻辑的重构，编译器现在能够正确处理这些高级语言特性，并顺利通过了所有测试用例。
+            \par\vspace{1.5em}
+        \end{abstract}
+    \end{@twocolumnfalse}
+]
+
+% --- 目录页 (单独分页) ---
+\clearpage
+\onecolumn
+\tableofcontents
+\clearpage
+\twocolumn
+
+%===========================================================
+% 第一章：引言
+%===========================================================
+\section{引言}
+本研究的工作重心是在基础的 SysY 编译器上，通过重构底层架构，实现了对 IEEE 754 浮点数、多级指针、For 循环以及结构体的支持。我们并没有简单地添加几种新类型，而是深入调整了从语法解析到中间代码（IR）生成的整个流程。
+具体的工作主要集中在以下四个方面。
+
+在浮点数实现方面：
+\begin{enumerate}
+    \item 类型转换引擎：编写了 castTo 函数，让编译器能自动处理像 int + float 这样的混合运算，根据需要自动插入 sitofp 或 fptosi 指令。
+    \item 条件判断适配：解决了浮点数直接作为跳转条件（如 if (0.5)）的问题，通过与 0.0 比较来生成布尔值。
+    \item 常量折叠：升级了计算器，让它在编译阶段就能算出包含浮点数的常量表达式结果。
+\end{enumerate}
+
+在指针实现方面：
+
+\begin{enumerate}
+    \item 指针语法支持：支持了 int *p 和 int **pp 等声明，并实现了 &（取地址）和 *（解引用）的 IR 翻译。
+    \item 内存访问策略：针对函数参数中的数组（如 int a[]），我们采用了 Load-Before-GEP 策略，解决了“传参后找不到数组首地址”的报错问题。
+    \item 指针算术：实现了 p + i 等指针偏移操作，并保证了 p[i] 与 *(p+i) 在底层生成逻辑上的一致性。
+\end{enumerate}
+
+在 For 循环实现方面：
+\begin{enumerate}
+    \item 控制流构建：设计了完整的 BasicBlock 结构（cond, body, inc, end），确保初始化、条件检查、循环体与步进逻辑的正确串联。
+    \item 跳转控制：通过维护循环栈结构，正确支持了 break（跳至 end）与 continue（跳至 inc）语义。
+\end{enumerate}
+
+在结构体实现方面：
+\begin{enumerate}
+    \item 类型扩展：在符号表中引入了结构体类型描述，支持成员变量的类型记录与索引映射。
+    \item 成员访问：实现了结构体成员访问符 . 的翻译，通过 GEP 指令精确计算成员地址偏移。
+\end{enumerate}
+
+
+
+\section{浮点数翻译}
+%===========================================================
+% 第二章：类型系统与符号表
+%===========================================================
+\subsection{类型系统与符号表的扩展}
+
+为了在 IR 层面引入对 IEEE 754 单精度浮点数的原生支持，我们首先对底层的类型系统及符号表管理机制进行了核心扩展。
+
+\subsubsection{基础类型系统的构建}
+遵循 LLVM 的类型设计模式，我们在 \texttt{Type} 类及其子类中实现了浮点类型的支持，主要包含以下扩展：
+
+\begin{enumerate}
+    \item \texttt{TypeID} 枚举中新增 \texttt{FloatTyID}，这为动态类型识别提供了基础。
+    \item 实现了继承自 \texttt{Type} 的 \texttt{FloatType} 类，作为 32 位浮点数的抽象表示。
+    \item 实现了静态工厂方法 \texttt{Type::getFloatTy()} 与 \texttt{Type::getFloatPtrTy()}。前者基于单例模式返回全局唯一的 \texttt{FloatType} 实例，后者用于生成指向浮点型的指针类型（\texttt{float*}），以支持数组传参及地址计算。
+\end{enumerate}
+\begin{lstlisting}[language=C++, caption={FloatType 类定义片段}]
+class FloatType : public Type {
+public:
+    FloatType() : Type(FloatTyID) {}
+    // 生成 IR 时的类型名为 "float"
+    std::string print() override { 
+        return "float"; 
+    } 
+};
+\end{lstlisting}
+
+\subsubsection{符号表与语义适配}
+在保持符号表数据结构（\texttt{std::map}）不变的前提下，我们扩展了其存储内容的类型语义，实现了从 AST 到 LLVM IR 的类型映射。
+
+\paragraph{运行时库函数注册}
+在 \texttt{declareLibraryFunctions} 中，我们构建了包含浮点类型的 \texttt{FunctionType}。将 \texttt{getfloat}, \texttt{putfloat} 以及涉及指针操作的 \texttt{getfarray}, \texttt{putfarray} 注册至全局作用域。这一步确保了编译器能正确解析 SysY 扩展库调用的 ABI 信息。
+\paragraph{函数定义的类型推导}
+在语义分析阶段（\texttt{visitFuncDef}），编译器通过识别 AST 中的 \texttt{FLOAT} 标记，将函数返回值设为 \texttt{FloatType}。对于形式参数，我们实现了严格的\textbf{类型降级逻辑}：基础类型映射为 \texttt{float}，而浮点数组（如 \texttt{float a[]}）则被强制降级为指针类型 \texttt{float*}。
+\paragraph{变量声明与内存分配}
+在 \texttt{visitVarDef} 中，根据类型说明符生成 \texttt{alloca float} 指令。分配后的栈地址被标记为浮点指针类型存入符号表，从而保证后续的 \texttt{load/store} 操作能够生成正确的浮点指令。
+
+%===========================================================
+% 第三章：算术运算与类型提升
+%===========================================================
+\subsection{算术运算与类型提升}
+
+遵循 SysY 及 C 语言标准，我们在 IR 生成阶段实现了基于类型提升的自动化处理机制，确保混合运算时数据流的类型一致性。
+
+\subsubsection{自动类型转换机制}
+我们在 \texttt{CodeGenVisitor} 中封装了核心辅助函数 \texttt{castTo(Value*, Type*)}，用于统一处理所有的隐式类型转换。该函数根据源类型与目标类型的差异，自动插入相应的 LLVM IR 转换指令：
+
+\begin{itemize}
+    \item \textbf{Int32 $\to$ Float}：生成 \texttt{sitofp} (Signed Integer To Floating-Point) 指令，实现整数到浮点数的提升。
+    \item \textbf{Float $\to$ Int32}：生成 \texttt{fptosi} (Floating-Point To Signed Integer) 指令，常见于浮点数赋值给整型变量或作为整型函数返回值时，执行截断取整操作。
+    \item \textbf{Bool (i1) 扩展}：针对布尔值，首先通过 \texttt{zext} 指令将其零扩展为 \texttt{i32}，随后根据目标类型需求决定是否进一步转换为浮点数。
+\end{itemize}
+
+\subsubsection{二元运算的类型升级策略}
+针对加、减、乘、除等二元运算节点（如 \texttt{visitAddExp}），我们实现了浮点优先的类型升级策略，如下流程图所示：
+
+\begin{figure}[htbp]
+    \centering
+    % 【关键修改】使用 \resizebox 包裹 tikzpicture
+    % 第一个参数 \linewidth 表示缩放到当前栏宽
+    % 第二个参数 ! 表示保持长宽比
+    \resizebox{\linewidth}{!}{
+    \begin{tikzpicture}[
+        node distance=1.5cm,
+        auto,
+        % 样式定义保持不变
+        startstop/.style={rectangle, rounded corners, minimum width=3cm, minimum height=1cm, align=center, draw=black, fill=red!10},
+        process/.style={rectangle, minimum width=3cm, minimum height=1cm, align=center, draw=black, fill=blue!10},
+        decision/.style={diamond, minimum width=3cm, minimum height=1cm, align=center, draw=black, fill=green!10, inner sep=0pt},
+        arrow/.style={thick,->,>=stealth}
+    ]
+
+    % 1. 定义节点 (保持不变)
+    \node (start) [startstop] {二元运算开始\\(LHS, RHS)};
+    \node (upgrade) [process, below of=start] {调用 \texttt{getUpgradedType}};
+    \node (isFloat) [decision, below of=upgrade, yshift=-0.5cm] {任一操作数\\为 Float?};
+    
+    \node (setFloat) [process, below left of=isFloat, xshift=-2cm, yshift=-1cm] {目标类型 = Float};
+    \node (setInt) [process, below right of=isFloat, xshift=2cm, yshift=-1cm] {目标类型 = Int};
+    
+    \node (cast) [process, below of=isFloat, yshift=-3cm] {调用 \texttt{castTo}\\统一操作数类型};
+    
+    \node (dispatch) [decision, below of=cast, yshift=-0.5cm] {目标类型判定};
+    
+    \node (floatInst) [process, below left of=dispatch, xshift=-2cm, yshift=-1.5cm] {生成浮点指令\\(\texttt{fadd}, \texttt{fmul}... )};
+    \node (intInst) [process, below right of=dispatch, xshift=2cm, yshift=-1.5cm] {生成整数指令\\(\texttt{add}, \texttt{mul}... )};
+    
+    \node (end) [startstop, below of=dispatch, yshift=-4cm] {生成 Value* 结果};
+
+    % 2. 连接边 (保持不变)
+    \draw [arrow] (start) -- (upgrade);
+    \draw [arrow] (upgrade) -- (isFloat);
+    
+    \draw [arrow] (isFloat) -| node[anchor=east] {Yes} (setFloat);
+    \draw [arrow] (isFloat) -| node[anchor=west] {No} (setInt);
+    
+    \draw [arrow] (setFloat) |- (cast);
+    \draw [arrow] (setInt) |- (cast);
+    
+    \draw [arrow] (cast) -- (dispatch);
+    
+    \draw [arrow] (dispatch) -| node[anchor=east] {Float} (floatInst);
+    \draw [arrow] (dispatch) -| node[anchor=west] {Int} (intInst);
+    
+    \draw [arrow] (floatInst) |- (end);
+    \draw [arrow] (intInst) |- (end);
+
+    \end{tikzpicture}
+    } % resizebox 结束大括号
+    \caption{二元运算的类型提升与指令分发流程}
+    \label{fig:type_promotion_flow}
+\end{figure}
+
+\subsubsection{语句级的类型适配}
+类型转换机制还广泛应用于语句层面：
+\begin{itemize}
+    \item \textbf{赋值适配}：在 \texttt{visitAssignStmt} 中，自动获取左值变量的声明类型，并将右值表达式的结果转换为该类型，从而正确处理如 \texttt{float f = 1;} 的混合赋值。
+    \item \textbf{返回值适配}：在 \texttt{visitReturnStmt} 中，强制将 \texttt{return} 语句中的表达式值转换为函数声明的返回类型。
+\end{itemize}
+
+%===========================================================
+% 第四章：控制流适配
+%===========================================================
+\subsection{比较运算与控制流适配}
+
+由于 LLVM IR 对整数和浮点数的比较操作采用完全独立的指令集（\texttt{icmp} vs \texttt{fcmp}），且条件跳转指令仅接受 \texttt{i1} 类型，我们在控制流处理模块进行了深度的逻辑适配。
+
+\subsubsection{浮点比较指令与谓词映射}
+在处理关系表达式（RelExp）和相等性表达式（EqExp）时，编译器首先检查操作数类型。若操作数为浮点型，则强制生成 \texttt{FCmpInst} 指令。
+
+针对 IEEE 754 标准中的 NaN（Not a Number）情况，我们采用\textbf{有序比较（Ordered）}模式，即操作数中含有 NaN 时比较结果默认为假。具体映射如下：
+\begin{itemize}
+    \item \textbf{相等性}：\texttt{==} $\to$ \texttt{OEQ}，\texttt{!=} $\to$ \texttt{ONE}。
+    \item \textbf{关系性}：\texttt{<} $\to$ \texttt{OLT}，\texttt{>} $\to$ \texttt{OGT}，\texttt{<=} $\to$ \texttt{OLE}，\texttt{>=} $\to$ \texttt{OGE}。
+\end{itemize}
+
+\subsubsection{浮点条件的布尔值转换}
+针对 SysY 允许浮点表达式直接充当条件（如 \texttt{if(0.5)}）的语义，必须实现从 \texttt{float} 到 \texttt{i1}（1位布尔值）的显式转换，以满足 LLVM \texttt{br} 指令的要求。
+
+遵循非零即真的原则，在 \texttt{visitIfStmt} 等控制流上下文中，当检测到条件表达式为 \texttt{FloatType} 时，自动插入与 \texttt{0.0} 的非等比较指令：
+
+\begin{lstlisting}[language=C++, caption={浮点条件转布尔值逻辑}]
+// 生成 fcmp une val, 0.0 指令
+Value *boolVal = builder.CreateFCmpUNE(
+    floatVal, 
+    ConstantFP::get(0.0)
+);
+\end{lstlisting}
+
+生成的 \texttt{boolVal} 即为所需的 \texttt{i1} 类型，可直接驱动后续的基本块跳转。
+
+% 占位符：此处可插入浮点比较控制流图
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.5\textwidth]{images/llvm_float_cfg.pdf}
+    \caption{浮点条件判断的 IR 生成流程}
+\end{figure}
+
+\subsubsection{短路求值的类型兼容性}
+在处理逻辑与（\texttt{\&\&}）和逻辑或（\texttt{||}）时，我们增强了对混合类型操作数的兼容性。
+编译器会对左右子表达式独立执行布尔化操作：\texttt{float} 生成 \texttt{fcmp une}，\texttt{int} 生成 \texttt{icmp ne}。这种统一化处理使得后续的短路跳转逻辑能够直接复用原有的控制流生成框架。
+
+%===========================================================
+% 第五章：数组与指针操作
+%===========================================================
+\subsection{数组与指针操作的适配}
+
+引入浮点类型后，数组与指针的处理复杂度显著增加。为了解决 LLVM IR 严格的类型匹配检查（如 \texttt{explicit pointee type doesn't match} 错误），我们重点修正了内存访问逻辑。
+
+\subsubsection{函数参数的数组降级}
+遵循 SysY 规范，函数参数中声明的数组（如 \texttt{float a[]}）在语义上被降级为指针（\texttt{float*}）。
+在 \texttt{visitFuncDef} 阶段，编译器为普通浮点变量分配存储值的空间（\texttt{alloca float}），而对于数组参数，则在栈上分配存储指针的空间（生成 \texttt{alloca float*}）。这意味着符号表中记录的该参数地址类型实际上是 \texttt{float**}（指向指针的指针）。
+
+\subsubsection{左值访问与 Load-Before-GEP}
+在生成数组元素访问指令（GEP）时，必须严格区分“本地数组”与“参数数组”的底层类型差异：
+
+\begin{itemize}
+    \item \textbf{本地数组}：符号表记录类型为数组指针（如 \texttt{[10 x float]*}）。直接基于该地址生成 GEP 指令即可。
+    \item \textbf{参数数组}：符号表记录类型为指针的地址（\texttt{float**}）。若直接对此地址偏移，实际上是在移动栈上的指针变量位置，而非访问数组元素。
+\end{itemize}
+
+为此，我们在 \texttt{getArrayElementPtr} 中引入了Load-Before-GEP策略：当检测到基地址类型为指针类型（\texttt{ptrTy->isPointerTy()}）时，优先插入一条 \texttt{load} 指令，从栈上读取真正的数组首地址（获取 \texttt{float*}），再基于此地址生成 GEP 指令。
+
+\begin{lstlisting}[language=C++, caption={Load-Before-GEP 策略实现}]
+// 伪代码：处理参数数组访问
+if (symbolType->isPointerTy()) {
+    // 参数是 float**，必须先 load 出 float*
+    baseAddr = builder.CreateLoad(
+        Type::getFloatPtrTy(), 
+        baseAddr
+    );
+}
+// 基于正确的基地址生成 GEP
+builder.CreateGEP(Type::getFloatTy(), baseAddr, index);
+\end{lstlisting}
+
+\subsubsection{浮点数组初始化适配}
+针对浮点数组的初始化列表（如 \texttt{float a[2] = \{1.0, 2\};}），我们重构了 \texttt{emitLocalInitRecursive} 逻辑。
+新逻辑不再硬编码 \texttt{Int32} 类型，而是动态获取元素类型。同时集成了 \texttt{castTo} 转换逻辑，当初始化列表中出现整型字面量时，自动将其转换为浮点常量，确保生成的 \texttt{store} 指令类型安全。
+
+%===========================================================
+% 第六章：常量求值优化
+%===========================================================
+\subsection{常量求值优化}
+
+为了支持全局变量的合法初始化（SysY 要求全局变量初始值必须为编译期常量），我们对常量求值引擎进行了底层架构升级。
+
+\subsubsection{核心架构升级}
+在早期实现中，常量求值函数（如 \texttt{evalConstExp}）的返回值被硬编码为 \texttt{int}。我们将求值引擎的接口升级为 LLVM IR 的 \texttt{Constant*} 基类指针，实现了常量的多态表示：
+\begin{itemize}
+    \item \textbf{多态封装}：整数封装为 \texttt{ConstantInt}，浮点数封装为 \texttt{ConstantFP}。
+    \item \textbf{统一接口}：通过 \texttt{Constant*} 指针传递数据，消除底层类型差异。
+\end{itemize}
+
+\subsubsection{混合类型折叠引擎}
+在 \texttt{CodeGenVisitor} 中重构了递归下降求值函数。新的折叠器支持编译期类型提升：
+在执行运算前，检查操作数类型。若出现混合类型（如 \texttt{int + float}），则在编译器内部将整数值转换为 C++ \texttt{float} 类型，执行原生运算后，将结果重新封装为新的 \texttt{ConstantFP} 对象返回。
+
+\subsubsection{增强的全局初始化支持}
+该机制确保了复杂全局变量定义的初始化符合类型规范。当计算出的常量类型与变量声明类型不一致时（例如 \texttt{int a = 3.5;}），折叠器会自动执行截断或扩展操作，保证生成的 LLVM IR 全局定义（如 \texttt{@a = global i32 3}）类型严格匹配。
+
+%===========================================================
+% 第七章：指针翻译
+%===========================================================
+\section{指针翻译}
+
+\subsection{类型系统与符号表扩展}
+
+\subsubsection{指针类型链的构造}
+指针类型通过 \texttt{PointerType} 对基础类型逐层包裹实现。解析阶段统计 \texttt{*} 的层数，语义阶段将基础类型提升为对应深度的指针类型，例如 \texttt{int**} 表示为 \texttt{PointerType(PointerType(int))}。
+
+在实现中，指针深度由语法树中的 \texttt{pointer} 规则累加得到，再通过辅助函数 \texttt{applyPointerDepth} 构造最终类型，保证与数组维度的处理解耦。
+
+具体实现上，指针声明路径与数组声明路径分离：
+\begin{itemize}
+    \item 指针深度先应用到基础类型，得到 \texttt{int*} / \texttt{int**} 等类型；
+    \item 若同时出现数组维度，则对指针类型再包裹数组类型，形成“数组的指针元素”语义；
+    \item 函数参数中若出现数组维度且无指针声明，则仍按 SysY 规范退化为指针。
+\end{itemize}
+
+\subsubsection{符号表记录与地址语义}
+指针变量在符号表中记录为“指针值的地址”，从而统一支持 \texttt{\&} 取地址与 \texttt{*} 解引用两类操作：\texttt{\&} 返回左值地址；\texttt{*} 先加载指针，再访问其指向的元素。该设计保证了 \texttt{int*} 与 \texttt{int**} 的访问逻辑一致。
+
+对于指针变量的赋值与读取，均通过“变量地址 $\rightarrow$ 真实指针值 $\rightarrow$ 指向对象”的两级访问路径完成，从而避免误把指针变量当作普通标量处理。
+
+在实现细节上，\texttt{SymbolInfo} 保存 \texttt{type} 与 \texttt{value}：
+\begin{itemize}
+    \item \texttt{value} 始终为变量的栈地址（\texttt{alloca} 结果）；
+    \item \texttt{type} 记录声明类型（如 \texttt{int*}），用于决定是否需要 \texttt{load} 取出真实指针值。
+\end{itemize}
+
+\subsection{语法扩展与一元语义}
+
+\subsubsection{指针声明}
+在变量定义与参数列表中引入 \texttt{pointer} 规则，支持 \texttt{int *p} 与 \texttt{int **pp}。指针深度与数组维度独立处理，避免数组降级逻辑与指针声明相互干扰。
+
+此外，\texttt{lVal} 规则允许 \texttt{*unaryExp} 作为左值，使 \texttt{*p = x} 可在语法层面合法化。
+
+语法改动的关键点包括：
+\begin{itemize}
+    \item \texttt{unaryOp} 中加入 \texttt{\&} 与 \texttt{*}；
+    \item \texttt{lVal} 允许 \texttt{*unaryExp} 分支；
+    \item \texttt{funcFParam} 与 \texttt{varDef} 支持可选的 \texttt{pointer} 前缀。
+\end{itemize}
+
+\subsubsection{取地址与解引用}
+一元运算新增 \texttt{\&} 与 \texttt{*}：
+\begin{itemize}
+    \item \textbf{\&lval}：生成地址值。
+    \item \textbf{*p}：既可作为右值读取，也可作为左值写入（\texttt{*p = x}）。
+\end{itemize}
+语义上要求 \texttt{*} 的操作数必须为指针类型，否则报错。
+
+为保证语义一致性，取地址只接受左值（变量、数组元素、解引用表达式），而 \texttt{*} 解引用则强制要求其操作数为指针类型，避免对标量错误解引用。
+
+在代码层面，\texttt{visitUnaryExp} 负责解析 \texttt{\&} 与 \texttt{*}；其中 \texttt{\&} 通过 \texttt{getLValAddress} 获取地址，\texttt{*} 则会插入 \texttt{load} 指令读取指针指向的数据。
+
+\subsection{IR 生成与指针算术}
+
+\subsubsection{取址与解引用的 IR 翻译}
+我们在 \texttt{CodeGenVisitor} 中抽象出统一的左值取址接口，用于实现 \texttt{\&}、\texttt{*} 以及赋值语句的地址计算：
+\begin{lstlisting}[language=C++, caption={指针取址与解引用的 IR 生成思路}]
+// &lval => 取地址
+Value *addr = getLValAddress(lval, &elemTy);
+
+// *p   => load 指向内容
+Value *val = builder.CreateLoad(elemTy, ptr);
+
+// *p = rhs => store 写回
+builder.CreateStore(rhs, ptr);
+\end{lstlisting}
+
+为了避免“左值读写路径不一致”的问题，我们将左值寻址与加载操作完全解耦：
+\begin{itemize}
+    \item \textbf{寻址阶段}：\texttt{getLValAddress} 只负责返回地址，不做加载。
+    \item \textbf{取值阶段}：需要值时再显式插入 \texttt{load}，例如 \texttt{*p} 或普通变量读取。
+    \item \textbf{写回阶段}：统一使用 \texttt{store}，并在写回前完成类型转换。
+\end{itemize}
+这种拆分方式使得 \texttt{*p = x} 与 \texttt{y = *p} 共享同一地址逻辑，同时避免重复生成 GEP。
+
+\begin{figure}[H]
+    \centering
+    % 使用 \resizebox 确保图形宽度等于行宽
+    \resizebox{\linewidth}{!}{
+        \begin{tikzpicture}[
+            node distance=1.2cm and 1.5cm,
+            auto,
+            startstop/.style={rectangle, rounded corners, minimum width=3.5cm, minimum height=1.2cm, align=center, draw=black, fill=red!10, line width=0.8pt},
+            process/.style={rectangle, minimum width=3.5cm, minimum height=1.2cm, align=center, draw=black, fill=blue!10, line width=0.8pt},
+            decision/.style={diamond, minimum width=3.5cm, minimum height=1.2cm, align=center, draw=black, fill=green!10, inner sep=0pt, line width=0.8pt},
+            arrow/.style={-Stealth, thick, line width=1pt}
+        ]
+            % --- 1. 定义核心节点 ---
+            \node (start) [startstop] {解析一元表达式};
+            
+            % 第一层判定：是否取地址
+            \node (isAddr) [decision, below=of start] {是否为 \&lval?};
+            
+            % 第二层：左侧是取地址处理，右侧是进一步判定
+            \node (getAddr) [process, left=of isAddr, xshift=-0.5cm] {getLValAddress};
+            \node (isDeref) [decision, right=of isAddr, xshift=0.5cm] {是否为 *p?};
+            
+            % 第三层：解引用的后续处理
+            \node (load) [process, below=of isDeref] {load 指向对象};
+            
+            % --- 2. 定义汇合终点 ---
+            % 使用相对坐标，将 end 放置在 start 正下方，保证整图对称
+            \node (end) [startstop, below=4.5cm of isAddr] {生成 Value 结果};
+
+            % --- 3. 绘制连线 ---
+            % 主干
+            \draw [arrow] (start) -- (isAddr);
+            
+            % 取地址分支 (Yes)
+            % 使用 -| 表示先水平再垂直
+            \draw [arrow] (isAddr) -- node[above, near start] {Yes} (getAddr);
+            \draw [arrow] (getAddr) |- (end);
+            
+            % 非取地址分支 (No) -> 进入解引用判定
+            \draw [arrow] (isAddr) -- node[above, near start] {No} (isDeref);
+            
+            % 解引用分支 (Yes)
+            \draw [arrow] (isDeref) -- node[right] {Yes} (load);
+            \draw [arrow] (load) |- (end);
+            
+            % 普通表达式分支 (No: 既不是 & 也不是 *)
+            % 从判定框右侧拉出一条线绕回终点
+            \draw [arrow] (isDeref.east) -- ++(1,0) node[right] {No} |- (end.east);
+
+        \end{tikzpicture}
+    }
+    \caption{取地址与解引用的 IR 翻译流程}
+\end{figure}
+
+核心接口 \texttt{getLValAddress} 负责处理三类情形：标量变量、数组元素访问、\texttt{*p} 解引用。对于数组元素，复用 \texttt{getArrayElementPtr} 生成 GEP；对于解引用，直接返回指针表达式本身作为地址。
+
+赋值语句中，左值地址由 \texttt{getLValAddress} 统一生成，再依据目标元素类型进行 \texttt{castTo} 或直接 \texttt{store}：
+\begin{itemize}
+    \item 若目标为指针类型（如 \texttt{int*}），右值保持指针类型直接写回；
+    \item 若目标为标量类型，右值需转换后写入。
+\end{itemize}
+
+\subsubsection{指针算术与等价翻译}
+指针算术采用 \texttt{getelementptr} 指令表达偏移：
+\begin{itemize}
+    \item \textbf{p + i}：对指针做 GEP 偏移。
+    \item \textbf{p - i}：偏移量取负实现反向寻址。
+\end{itemize}
+因此 \texttt{p[i]} 与 \texttt{*(p+i)} 在 IR 层生成一致：
+\[
+    p[i] \equiv *(p + i)
+\]
+
+\begin{figure}[htbp]
+    \centering
+    \resizebox{\linewidth}{!}{
+    \begin{tikzpicture}[
+        node distance=1.5cm,
+        auto,
+        startstop/.style={rectangle, rounded corners, minimum width=3.4cm, minimum height=1cm, align=center, draw=black, fill=red!10},
+        process/.style={rectangle, minimum width=3.4cm, minimum height=1cm, align=center, draw=black, fill=blue!10},
+        decision/.style={diamond, minimum width=3.4cm, minimum height=1cm, align=center, draw=black, fill=green!10, inner sep=0pt},
+        arrow/.style={thick,->,>=stealth}
+    ]
+        \node (start) [startstop] {解析 p + i / p - i};
+        \node (cast) [process, below of=start] {索引提升为 i64};
+        \node (neg) [decision, below of=cast] {是否为 p - i?};
+        \node (negate) [process, below left of=neg, xshift=-2.2cm] {offset = 0 - i};
+        \node (keep) [process, below right of=neg, xshift=2.2cm] {offset = i};
+        \node (gep) [process, below of=neg, yshift=-2.6cm] {GEP(p, offset)};
+        \node (end) [startstop, below of=gep] {生成指针结果};
+
+        \draw [arrow] (start) -- (cast);
+        \draw [arrow] (cast) -- (neg);
+        \draw [arrow] (neg) -| node[anchor=east] {Yes} (negate);
+        \draw [arrow] (neg) -| node[anchor=west] {No} (keep);
+        \draw [arrow] (negate) |- (gep);
+        \draw [arrow] (keep) |- (gep);
+        \draw [arrow] (gep) -- (end);
+    \end{tikzpicture}
+    }
+    \caption{指针算术与 GEP 偏移流程}
+\end{figure}
+
+实现中，索引会先提升为 \texttt{i64}，以符合 LLVM 对 GEP 索引类型的要求；当出现 \texttt{p - i} 时，通过生成 \texttt{0 - i} 的偏移量实现。
+
+为保持语义一致性，指针算术只允许“指针 $\pm$ 整数”组合，若两侧均为指针则不生成 GEP 并保持原值（后续可拓展为差值计算）。
+
+\subsubsection{左值路径与赋值语句细化}
+在赋值语句中，左值可能是三类结构：普通变量、数组元素或解引用表达式。我们统一通过 \texttt{getLValAddress} 获取写入地址：
+\begin{itemize}
+    \item \textbf{普通变量}：直接返回符号表中的 \texttt{alloca} 地址。
+    \item \textbf{数组元素}：通过 \texttt{getArrayElementPtr} 生成 GEP 得到元素地址。
+    \item \textbf{解引用}：对 \texttt{*p} 的操作数进行求值，返回指针本身作为地址。
+\end{itemize}
+随后按目标类型决定是否插入 \texttt{castTo}，确保 \texttt{store} 的类型一致。
+
+\subsubsection{指针比较与条件上下文}
+在条件表达式中，指针本质仍作为整数地址处理。当前实现允许使用 \texttt{==} / \texttt{!=} 比较指针值，并通过 \texttt{icmp} 完成布尔化。对于与整数混用的情况，要求整数先转换为指针等宽类型后再比较，避免类型不一致导致的 IR 错误。
+
+\subsubsection{常见边界与错误处理}
+指针翻译中常见的错误主要包括：
+\begin{itemize}
+    \item 对非指针执行 \texttt{*} 解引用；
+    \item 对临时表达式执行 \texttt{\&} 取地址；
+    \item 将指针作为数值参与普通加减（非指针算术路径）。
+\end{itemize}
+实现中通过类型检查与语义约束提前拦截这些情况，避免生成无效 IR。
+
+\subsubsection{函数调用与参数适配}
+函数调用时会根据目标形参类型调整实参。若形参为指针类型，实参是数组或多维数组，则通过 \texttt{getelementptr} 将数组首地址调整为形参期望的指针类型，确保 \texttt{putarray} / \texttt{getarray} 及用户自定义指针参数调用一致。
+
+具体实现由 \texttt{adjustArgumentToParam} 负责：
+\begin{itemize}
+    \item 若形参是指针，实参是数组地址，则生成 \texttt{GEP} 提取首元素地址；
+    \item 若形参是多维指针，按维度逐步剥离数组类型，直至匹配形参期望元素类型。
+\end{itemize}
+
+\subsection{数组退化与指针参数}
+参数数组仍遵循 SysY 规范降级为指针，但在符号表中以“指针的地址”表示。访问数组元素时先 \texttt{load} 出真实首地址，再执行 GEP，避免对栈上指针变量进行错误寻址。
+
+该策略同样适用于二维数组形参：当形参类型为 \texttt{int (*)[N]} 时，先加载到真实数组首地址，再以 \texttt{GEP} 计算行/列偏移，保证与 C 语言布局一致。
+
+对比一维数组与二维数组，主要差别在于 GEP 索引序列：
+\begin{itemize}
+    \item 一维：\texttt{GEP(base, 0, i)}
+    \item 二维：\texttt{GEP(base, 0, i, j)}
+\end{itemize}
+
+\subsection{测试与验证}
+
+为了全面验证编译器对浮点数与指针翻译的正确性，我们构建了包含多个维度的黑盒测试集，旨在验证生成的 LLVM IR 行为是否严格符合 SysY 语言规范。
+
+测试集涵盖了基础运算、类型转换、控制流逻辑、数组内存操作以及复杂嵌套调用与指针语义等场景。具体的测试用例组成、文件名及详细测试点描述请参见附录 \ref{sec:appendix_test} 中的表 \ref{tab:test_suite} 与表 \ref{tab:pointer_suite}。
+
+经测试，编译器生成的 LLVM IR 能够正确通过所有测试点，且关键指令（如 \texttt{fcmp}, \texttt{getelementptr}）的生成逻辑符合预期。
+%===========================================================
+% 第四章：For循环翻译
+%===========================================================
+\section{For循环翻译}
+
+在本次大作业中，我们实现了 C 语言风格的 \texttt{for} 循环控制流翻译。`for` 循环的基本形式为 \texttt{for(init; cond; step) body}，其执行流程涉及初始化、条件判断、循环体执行与步进更新四个主要阶段。
+
+\subsection{BasicBlock 结构设计}
+
+为了正确表达循环语义，我们在 LLVM IR 中为每个 \texttt{for} 循环构建了四个基本块（BasicBlock）：
+
+\begin{itemize}
+    \item \texttt{condBB}：条件判断块。循环开始或每次迭代结束后跳转至此，评估循环条件。
+    \item \texttt{bodyBB}：循环体块。当条件为真时执行用户逻辑。
+    \item \texttt{incBB}：步进块。执行 \texttt{step} 语句（如 \texttt{i++}），完成后无条件跳转回 \texttt{condBB}。
+    \item \texttt{endBB}：结束块。当循环条件为假时跳转至此，继续执行后续代码。
+\end{itemize}
+
+此外，为了支持 \texttt{break} 和 \texttt{continue} 语句，我们维护了一个 \texttt{loop\_stack\_} 栈结构，栈顶元素记录了当前循环的 \texttt{incBB}（对应 \texttt{continue} 目标）和 \texttt{endBB}（对应 \texttt{break} 目标）。
+
+\subsection{代码实现}
+
+核心逻辑在 \texttt{visitForStmt} 函数中实现。在生成 IR 时，我们首先处理初始化语句 \texttt{init}，随后创建上述四个基本块并构建控制流图（CFG）。
+
+\begin{lstlisting}[language=C++]
+std::any CodeGenVisitor::visitForStmt(SysYParser::ForStmtContext *ctx) {
+    Function *func = builder_.GetInsertBlock()->getParent();
+    // 1. 创建四个核心基本块
+    BasicBlock *condBB = BasicBlock::create(genBBName("for_cond"), func);
+    BasicBlock *bodyBB = BasicBlock::create(genBBName("for_body"), func);
+    BasicBlock *incBB  = BasicBlock::create(genBBName("for_inc"), func);
+    BasicBlock *endBB  = BasicBlock::create(genBBName("for_end"), func);
+    
+    // 压栈，供 break/continue 使用
+    loop_stack_.push_back({incBB, endBB}); 
+    
+    // 2. 初始化 (Init)
+    if (ctx->init) visit(ctx->init);
+    builder_.createBr(condBB); // 跳转进条件块
+    
+    // 3. 条件判断 (Cond)
+    builder_.setInsertPoint(condBB);
+    if (ctx->cond()) {
+        auto condAny = visit(ctx->cond());
+        Value *condVal = std::any_cast<Value *>(condAny);
+        // ... (类型转换与比较逻辑，省略) ...
+        builder_.createCondBr(condVal, bodyBB, endBB);
+    } else {
+        builder_.createBr(bodyBB); // 无条件默认为真
+    }
+    
+    // 4. 循环体 (Body)
+    builder_.setInsertPoint(bodyBB);
+    visit(ctx->stmt());
+    if (!builder_.GetInsertBlock()->getTerminator()) {
+        builder_.createBr(incBB); // 循环体结束跳至步进
+    }
+    
+    // 5. 步进 (Inc)
+    builder_.setInsertPoint(incBB);
+    if (ctx->step) visit(ctx->step);
+    builder_.createBr(condBB); // 步进后跳回判断
+    
+    // 6. 后续代码 (End)
+    builder_.setInsertPoint(endBB);
+    loop_stack_.pop_back();
+    return std::any();
+}
+\end{lstlisting}
+
+\subsection{控制流图解}
+
+以下流程图展示了 \texttt{for} 循环各部分之间的跳转关系：
+
+\begin{figure}[H]
+    \centering
+    \resizebox{\linewidth}{!}{
+    \begin{tikzpicture}[
+        node distance=1.5cm,
+        auto,
+        startstop/.style={rectangle, rounded corners, minimum width=3cm, minimum height=1cm, align=center, draw=black, fill=red!10},
+        process/.style={rectangle, minimum width=3cm, minimum height=1cm, align=center, draw=black, fill=blue!10},
+        decision/.style={diamond, aspect=2, minimum width=3cm, minimum height=1cm, align=center, draw=black, fill=green!10},
+        arrow/.style={-Stealth, thick}
+    ]
+        \node (init) [startstop] {Init 初始化};
+        \node (cond) [decision, below=of init] {Cond 条件?};
+        \node (body) [process, below=of cond] {Body 循环体};
+        \node (inc) [process, right=of body, xshift=1cm] {Inc 步进};
+        \node (end) [startstop, right=of cond, xshift=3cm] {End 结束};
+
+        \draw [arrow] (init) -- (cond);
+        \draw [arrow] (cond) -- node[right] {True} (body);
+        \draw [arrow] (body) -- (inc);
+        \draw [arrow] (inc) |- (cond);
+        \draw [arrow] (cond) -- node[above] {False} (end);
+    \end{tikzpicture}
+    }
+    \caption{For 循环控制流转换示意图}
+    \label{fig:for_flow}
+\end{figure}
+
+%===========================================================
+% 第五章：结构体翻译
+%===========================================================
+\section{结构体翻译}
+
+为了支持复杂数据结构，我们引入了对 \texttt{struct} 的支持。结构体的翻译主要包含两部分：类型定义的解析与注册，以及成员访问时的地址计算。
+
+\subsection{类型定义与内存布局}
+
+在 \texttt{visitStructDef} 中，无论是常量声明还是变量声明，我们都需要解析其成员列表。对于每个成员，我们计算其类型并依序存入 `memberTypes` 列表，同时在 \texttt{struct\_member\_indices\_} 映射表中记录成员名称到索引（index）的对应关系。最终利用 LLVM 的 \texttt{StructType::create} 创建具名结构体类型。
+
+\begin{lstlisting}[language=C++]
+// 简化的结构体定义处理逻辑
+StructType *st = StructType::create(memberTypes, name);
+struct_types_[name] = st;
+struct_member_indices_[name] = memberIndices;
+module_->addStructDefinition(st);
+\end{lstlisting}
+
+这确保了后续在符号表中查找到该结构体类型时，能够正确获取其 LLVM \texttt{StructType} 指针。
+
+\subsection{成员访问与地址计算}
+
+结构体成员访问（如 \texttt{a.b}）通过 \texttt{.} 运算符实现。在 SysY 语言规范中，这通常对应 \texttt{LValMemberContext}。根据 LLVM 的设计，访问结构体会生成 \texttt{getelementptr} (GEP) 指令。
+
+我们需要处理两种情形：
+\begin{enumerate}
+    \item \textbf{直接访问}：如果基地址是指向结构体的指针（例如局部变量 \texttt{Struct A a; &a}），我们生成 \texttt{GEP pointer, 0, index}。
+    \item \textbf{间接访问（隐式解引用）}：如果基地址是指向结构体指针的指针（例如作为参数传递的结构体指针），则需先加载一次得到结构体指针，再生成 \texttt{GEP pointer, 0, index}。
+\end{enumerate}
+
+代码逻辑主要集成在 \texttt{getLValAddress} 的实现中：
+
+\begin{lstlisting}[language=C++]
+// LValMemberContext 处理
+else if (auto *memCtx = dynamic_cast<SysYParser::LValMemberContext *>(ctx)) {
+     // 1. 获取基地址 baseAddr
+     Value *baseAddr = getLValAddress(memCtx->lVal(), &baseTy);
+     std::string memberName = memCtx->IDENT()->getText();
+     
+     if (baseTy->isStructTy()) {
+         StructType *st = static_cast<StructType *>(baseTy);
+         // 2. 查找成员索引
+         int idx = struct_member_indices_[st->getName()][memberName];
+         
+         // 3. 构建索引列表：[0, idx]
+         std::vector<Value *> idxList;
+         idxList.push_back(ConstantInt::get(Type::getInt32Ty(), 0));
+         idxList.push_back(ConstantInt::get(Type::getInt32Ty(), idx));
+         
+         // 4. 生成 GEP 指令
+         if (elemTy) *elemTy = st->getElementType(idx);
+         return builder_.createGEP(baseAddr, idxList);
+     }
+}
+\end{lstlisting}
+
+通过这种方式，我们能够将高级语言中的 \texttt{obj.field} 语义准确映射为 LLVM IR 中的内存偏移计算，从而支持结构体变量的读写操作。
+
+%===========================================================
+% 第六章：结论
+%===========================================================
+\section{结论}
+通过本次期末作业的拓展研究，我们成功为 SysY 编译器补齐了浮点数、指针、For 循环以及结构体这四大核心功能。在实现过程中，我们不仅掌握了如何利用 LLVM IR 指令（如 \texttt{fcmp}, \texttt{getelementptr}, \texttt{phi}）来表达高级语言语义，更重要的是理清了内存地址计算、类型系统扩展与控制流图构建之间的底层联系。
+
+目前，编译器已经能够稳定处理混合类型运算、多层指针嵌套访问、复杂的循环控制流以及结构化的数据组织。虽然在指针的安全检查（如野指针检测）方面还有提升空间，但就功能完整性而言，已经达到了我们的预期要求，能够支撑起包括复杂算法与数据结构在内的各类应用程序。
+%===========================================================
+% 附录区域
+%===========================================================
+\clearpage % 强制换页
+\appendix  % 开启附录模式（章节编号变为 A, B...）
+\onecolumn % 切换为单栏模式，以便表格能够舒展显示
+
+\section{附录：测试用例说明}
+\label{sec:appendix_test}
+
+% 这里放置表格，宽度调整为适应单栏页面
+\begin{table}[h] 
+    \centering
+    \caption{SysY 浮点数测试用例详情（共10项）}
+    \label{tab:test_suite}
+    \renewcommand{\arraystretch}{1.4} % 增加行高，使表格更清晰
+    % 调整列宽比例：0.15 + 0.25 + 0.55 = 0.95 \textwidth
+    \begin{tabular}{p{0.15\textwidth} p{0.25\textwidth} p{0.55\textwidth}}
+        \toprule
+        \textbf{测试维度} & \textbf{文件名} & \textbf{测试点描述} \\
+        \midrule
+        \textbf{基础运算} & \texttt{00\_float\_checks} & 冒烟测试：定义、初始化、基础四则运算。 \\
+                          & \texttt{01\_arithmetic}    & 运算符优先级、括号、6种关系比较符及 \texttt{fcmp} 谓词验证。 \\
+        \hline
+        \textbf{类型转换} & \texttt{02\_conversion}    & 隐式提升 (\texttt{sitofp})、截断赋值 (\texttt{fptosi})、显式 Cast。 \\
+        \hline
+        \textbf{控制流}   & \texttt{03\_control}       & IO 交互、浮点循环计数、逻辑短路特性。 \\
+                          & \texttt{08\_bool}          & 浮点布尔值转换（非零即真）、混合类型逻辑运算。 \\
+        \hline
+        \textbf{数组内存} & \texttt{04\_float\_array}  & 一维数组初始化、函数传参（指针降级）、GEP 地址计算。 \\
+                          & \texttt{09\_multidim}      & 多维数组声明、线性化地址步长计算。 \\
+        \hline
+        \textbf{复杂嵌套} & \texttt{05\_float\_nested} & 函数复合调用（寄存器分配）、多层混合运算嵌套。 \\
+        \hline
+        \textbf{综合算法} & \texttt{06\_float\_bubblesort} & 浮点冒泡排序：集成测试数组读写、\texttt{fcmp} 比较及双重循环控制流。 \\
+        \hline
+        \textbf{作用域}   & \texttt{07\_scope}         & 变量遮蔽（Global/Local/Block）、不同类型同名变量的符号表栈管理。 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{longtable}{p{0.18\textwidth} p{0.25\textwidth} p{0.52\textwidth}}
+    
+    % --- 第一页的表头 ---
+    \caption{SysY 指针测试用例详情（共 15 项）} \label{tab:pointer_suite} \\
+    \toprule
+    \textbf{测试维度} & \textbf{文件名} & \textbf{测试点描述} \\
+    \midrule
+    \endfirsthead
+
+    % --- 续页的表头（即第二页及以后显示的表头） ---
+    \caption*{续表 \ref{tab:pointer_suite}：SysY 指针测试用例详情} \\
+    \toprule
+    \textbf{测试维度} & \textbf{文件名} & \textbf{测试点描述} \\
+    \midrule
+    \endhead
+
+    % --- 续页的底部（可选，例如显示“下页继续”） ---
+    \midrule
+    \multicolumn{3}{r}{接下页...} \\
+    \footnotemark
+    \endfoot
+
+    % --- 最后一页的底部 ---
+    \bottomrule
+    \endlastfoot
+
+    % --- 数据行 ---
+    \textbf{取地址/交换} & \texttt{00\_pointer\_pass\_array} & \texttt{\&} 取址 + \texttt{*} 解引用完成 swap。 \\
+    \textbf{数组修改} & \texttt{01\_pointer\_modify} & 函数参数为指针，验证写回语义。 \\
+    \textbf{多级指针} & \texttt{02\_pointer\_indexing} & \texttt{int**} 解引用写入。 \\
+    \textbf{指针求和} & \texttt{03\_pointer\_getarray\_sum} & 输入数组 + 指针遍历求和。 \\
+    \textbf{二维数组} & \texttt{04\_pointer\_2d\_pass} & 二维数组参数退化与寻址。 \\
+    \textbf{数组缩放} & \texttt{05\_pointer\_add\_all} & 指针遍历修改数组元素。 \\
+    \textbf{输入索引} & \texttt{06\_pointer\_input\_index} & 输入索引写入数组元素。 \\
+    \textbf{返回元素} & \texttt{07\_pointer\_return\_elem} & 指针索引读取并返回值。 \\
+    \textbf{嵌套调用} & \texttt{08\_pointer\_nested\_call} & 指针传参与嵌套调用影响。 \\
+    \textbf{最大值} & \texttt{09\_pointer\_getarray\_max} & 输入数组求最大值。 \\
+    \textbf{取址读} & \texttt{10\_pointer\_addr\_read} & \texttt{\&} + \texttt{*} 解引用读取。 \\
+    \textbf{解引用写} & \texttt{11\_pointer\_deref\_write} & \texttt{*p = x} 写回验证。 \\
+    \textbf{等价性} & \texttt{12\_pointer\_index\_equiv} & \texttt{p[i]} 与 \texttt{*(p+i)} 等价性。 \\
+    \textbf{指针参数} & \texttt{13\_pointer\_param\_sum} & \texttt{int *} 作为函数参数求和。 \\
+    \textbf{输入缩放} & \texttt{14\_pointer\_scale\_input} & 输入数组与倍乘缩放（指针算术）。 \\
+
+\end{longtable}
+
+\begin{table}[h]
+    \centering
+    \caption{SysY For 循环测试用例详情（共10项）}
+    \label{tab:loop_suite}
+    \renewcommand{\arraystretch}{1.4}
+    \begin{tabular}{p{0.15\textwidth} p{0.25\textwidth} p{0.55\textwidth}}
+        \toprule
+        \textbf{测试维度} & \textbf{文件名} & \textbf{测试点描述} \\
+        \midrule
+        \textbf{基础结构} & \texttt{300\_loop\_01} & 标准 For 循环基本执行逻辑。 \\
+                          & \texttt{300\_loop\_08} & 循环体为空时的正确跳转。 \\
+        \hline
+        \textbf{缺省形式} & \texttt{300\_loop\_02} & 省略 Init 语句。 \\
+                          & \texttt{300\_loop\_03} & 省略 Cond 语句（配合 break）。 \\
+                          & \texttt{300\_loop\_04} & 省略 Step 语句（循环体内手动步进）。 \\
+        \hline
+        \textbf{控制流}   & \texttt{300\_loop\_05} & 复合条件表达式（\texttt{\&\&}, \texttt{||}）作为循环出口。 \\
+                          & \texttt{300\_loop\_07} & Continue 语句跳转至 incBB。 \\
+        \hline
+        \textbf{嵌套与作用域} & \texttt{300\_loop\_06} & 双重循环嵌套，验证内外层计数器独立性。 \\
+                              & \texttt{300\_loop\_09} & 循环变量与外部变量的作用域遮蔽测试。 \\
+        \hline
+        \textbf{类型扩展} & \texttt{300\_loop\_10} & 浮点数作为循环计数器。 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{table}[h]
+    \centering
+    \caption{SysY 结构体测试用例详情（共10项）}
+    \label{tab:struct_suite}
+    \renewcommand{\arraystretch}{1.4}
+    \begin{tabular}{p{0.15\textwidth} p{0.25\textwidth} p{0.55\textwidth}}
+        \toprule
+        \textbf{测试维度} & \textbf{文件名} & \textbf{测试点描述} \\
+        \midrule
+        \textbf{定义与读写} & \texttt{301\_struct\_01} & 结构体定义与成员变量的读写操作。 \\
+                            & \texttt{301\_struct\_08} & 结构体变量间的整体赋值与拷贝。 \\
+                            & \texttt{301\_struct\_07} & 全局结构体的定义与初始化验证。 \\
+        \hline
+        \textbf{初始化}     & \texttt{301\_struct\_02} & 结构体初始化列表（Initializer List）。 \\
+                            & \texttt{301\_struct\_10} & 混合类型成员的初始化与内存对齐访问。 \\
+        \hline
+        \textbf{嵌套结构}   & \texttt{301\_struct\_03} & 结构体嵌套（\texttt{struct A} 含 \texttt{struct B} 成员）。 \\
+                            & \texttt{301\_struct\_05} & 结构体数组成员（\texttt{struct A} 含数组）。 \\
+        \hline
+        \textbf{数组交互}   & \texttt{301\_struct\_04} & 结构体数组的声明与元素访问。 \\
+                            & \texttt{301\_struct\_09} & 复杂结构体数组的索引存取校验。 \\
+        \hline
+        \textbf{函数边界}   & \texttt{301\_struct\_06} & 结构体成员作为函数参数传递。 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+\end{document}

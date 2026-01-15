@@ -70,6 +70,8 @@ def execute_llvmir(llvmir_file):
     subprocess.run("rm -f a.out", shell=True)
     return result.returncode
 
+import sys
+
 def main():    
     subprocess.run("rm -f ./test/resources/functional/*.ll", shell=True)
     subprocess.run("rm -f ./test/resources/functional/*.output", shell=True)
@@ -79,8 +81,15 @@ def main():
     results = {}
     
     test_dir = Path("./test/resources/functional")
+    all_files = sorted(test_dir.glob("*.sy"), key=lambda x: x.name[:2])
     
-    for sysy_file in sorted(test_dir.glob("*.sy"), key=lambda x: x.name[:2]):
+    if len(sys.argv) > 1:
+        keyword = sys.argv[1]
+        target_files = [f for f in all_files if keyword in f.name]
+    else:
+        target_files = all_files
+    
+    for sysy_file in target_files:
 
         total_tests += 1
         base_name = sysy_file.stem
@@ -110,9 +119,10 @@ def main():
     print("║ Test Name               ║ Result      ║")
     print("╠═════════════════════════╬═════════════╣")
 
-    for sysy_file in sorted(test_dir.glob("*.sy"), key=lambda x: x.name[:2]):
+    for sysy_file in target_files:
         base_name = sysy_file.stem
-        print(f"║ {base_name.ljust(23)} ║ {results[base_name]}    ║")
+        if base_name in results:
+             print(f"║ {base_name.ljust(23)} ║ {results[base_name]}    ║")
 
     print("╚═════════════════════════╩═════════════╝")
     print("\n📊 Test Summary:")

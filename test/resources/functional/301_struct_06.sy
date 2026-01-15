@@ -1,0 +1,37 @@
+
+struct Point {
+  int x;
+  int y;
+};
+
+struct Rect {
+  struct Point p1;
+  struct Point p2;
+};
+
+struct Node {
+  int val;
+  int next;
+};
+
+struct Data {
+  int arr[10];
+  float f;
+};
+
+struct Mixed {
+  int a;
+  float b;
+  int c;
+};
+    
+int add(int a, int b) {
+          return a + b;
+        }
+
+        int main() {
+          struct Point p = {10, 20};
+          int res = add(p.x, p.y);
+          if (res == 30) return 0;
+          return 1;
+        }

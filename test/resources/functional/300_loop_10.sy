@@ -1,0 +1,9 @@
+int main() {
+          float fsum = 0.0;
+          float f;
+          for (f = 0.0; f < 5.0; f = f + 1.0) {
+            fsum = fsum + f;
+          }
+          if (fsum == 10.0) return 0;
+          return 1;
+        }

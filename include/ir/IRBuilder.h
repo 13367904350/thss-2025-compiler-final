@@ -140,6 +140,24 @@ public:
         return inst;
     }
 
+    FCmpInst *createFCmpONE(Value *lhs, Value *rhs) {
+        auto *inst = new FCmpInst(FCmpInst::ONE, lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    SIToFPInst *createSIToFP(Value *val, Type *ty) {
+        auto *inst = new SIToFPInst(val, ty, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    FPToSIInst *createFPToSI(Value *val, Type *ty) {
+        auto *inst = new FPToSIInst(val, ty, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
     CallInst *createCall(Function *func, std::vector<Value *> args) {
         auto *inst = new CallInst(func, args, insert_point_);
         if (!inst->getType()->isVoidTy()) {
