@@ -3,6 +3,19 @@
 #include "ir/Function.h"
 #include <iostream>
 
+static Type *computeGEPResultType(Value *ptr, const std::vector<Value *> &idxs) {
+    auto *ptr_ty = static_cast<PointerType *>(ptr->getType());
+    Type *result_ty = ptr_ty->getElementType();
+    for (size_t i = 1; i < idxs.size(); ++i) {
+        if (result_ty->isArrayTy()) {
+            result_ty = static_cast<ArrayType *>(result_ty)->getElementType();
+        } else if (result_ty->isPointerTy()) {
+            result_ty = static_cast<PointerType *>(result_ty)->getElementType();
+        }
+    }
+    return PointerType::get(result_ty);
+}
+
 Instruction::Instruction(Type *ty, OpID id, unsigned num_ops, BasicBlock *parent)
     : User(ty, "", num_ops), op_id_(id), parent_(parent) {
     if (parent_) {
@@ -11,7 +24,7 @@ Instruction::Instruction(Type *ty, OpID id, unsigned num_ops, BasicBlock *parent
 }
 
 bool Instruction::isBinary() const {
-    return op_id_ >= Add && op_id_ <= SRem;
+    return (op_id_ >= Add && op_id_ <= SRem) || (op_id_ >= FAdd && op_id_ <= FDiv);
 }
 
 bool Instruction::isTerminator() const {
@@ -44,6 +57,22 @@ BinaryInst *BinaryInst::createSRem(Value *v1, Value *v2, BasicBlock *parent) {
     return new BinaryInst(v1->getType(), SRem, v1, v2, parent);
 }
 
+BinaryInst *BinaryInst::createFAdd(Value *v1, Value *v2, BasicBlock *parent) {
+    return new BinaryInst(v1->getType(), FAdd, v1, v2, parent);
+}
+
+BinaryInst *BinaryInst::createFSub(Value *v1, Value *v2, BasicBlock *parent) {
+    return new BinaryInst(v1->getType(), FSub, v1, v2, parent);
+}
+
+BinaryInst *BinaryInst::createFMul(Value *v1, Value *v2, BasicBlock *parent) {
+    return new BinaryInst(v1->getType(), FMul, v1, v2, parent);
+}
+
+BinaryInst *BinaryInst::createFDiv(Value *v1, Value *v2, BasicBlock *parent) {
+    return new BinaryInst(v1->getType(), FDiv, v1, v2, parent);
+}
+
 std::string BinaryInst::getOpName() const {
     switch (op_id_) {
         case Add: return "add";
@@ -51,6 +80,10 @@ std::string BinaryInst::getOpName() const {
         case Mul: return "mul";
         case SDiv: return "sdiv";
         case SRem: return "srem";
+        case FAdd: return "fadd";
+        case FSub: return "fsub";
+        case FMul: return "fmul";
+        case FDiv: return "fdiv";
         default: return "";
     }
 }
@@ -142,9 +175,9 @@ bool BranchInst::isCond() const {
 
 std::string BranchInst::print() const {
     if (isCond()) {
-        return "br " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + ", label %" + getOperand(1)->getNameStr() + ", label %" + getOperand(2)->getNameStr();
+        return "br " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + ", label %" + getOperand(1)->getName() + ", label %" + getOperand(2)->getName();
     } else {
-        return "br label %" + getOperand(0)->getNameStr();
+        return "br label %" + getOperand(0)->getName();
     }
 }
 
@@ -170,6 +203,34 @@ std::string ICmpInst::print() const {
     return "%" + getName() + " = icmp " + getOpName() + " " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + ", " + getOperand(1)->getNameStr();
 }
 
+FCmpInst::FCmpInst(FCmpOp op, Value *lhs, Value *rhs, BasicBlock *parent)
+    : Instruction(Type::getInt1Ty(), FCmp, 2, parent), cmp_op_(op) {
+    setOperand(0, lhs);
+    setOperand(1, rhs);
+}
+
+std::string FCmpInst::getOpName() const {
+    switch (cmp_op_) {
+        case OEQ: return "oeq";
+        case ONE: return "one";
+        case OGT: return "ogt";
+        case OGE: return "oge";
+        case OLT: return "olt";
+        case OLE: return "ole";
+        case UEQ: return "ueq";
+        case UNE: return "une";
+        case UGT: return "ugt";
+        case UGE: return "uge";
+        case ULT: return "ult";
+        case ULE: return "ule";
+        default: return "";
+    }
+}
+
+std::string FCmpInst::print() const {
+    return "%" + getName() + " = fcmp " + getOpName() + " " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + ", " + getOperand(1)->getNameStr();
+}
+
 CallInst::CallInst(Function *func, std::vector<Value *> args, BasicBlock *parent)
     : Instruction(func->getFunctionType()->getReturnType(), Call, args.size() + 1, parent) {
     setOperand(0, func);
@@ -183,7 +244,8 @@ std::string CallInst::print() const {
     if (!getType()->isVoidTy()) {
         s += "%" + getName() + " = ";
     }
-    s += "call " + getType()->print() + " @" + getOperand(0)->getNameStr() + "(";
+
+    s += "call " + getType()->print() + " " + getOperand(0)->getNameStr() + "(";
     for (size_t i = 1; i < getNumOperands(); ++i) {
         s += getOperand(i)->getType()->print() + " " + getOperand(i)->getNameStr();
         if (i < getNumOperands() - 1)
@@ -191,6 +253,24 @@ std::string CallInst::print() const {
     }
     s += ")";
     return s;
+}
+
+SIToFPInst::SIToFPInst(Value *val, Type *ty, BasicBlock *parent)
+    : Instruction(ty, SIToFP, 1, parent) {
+    setOperand(0, val);
+}
+
+std::string SIToFPInst::print() const {
+    return "%" + getName() + " = sitofp " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + " to " + getType()->print();
+}
+
+FPToSIInst::FPToSIInst(Value *val, Type *ty, BasicBlock *parent)
+    : Instruction(ty, FPToSI, 1, parent) {
+    setOperand(0, val);
+}
+
+std::string FPToSIInst::print() const {
+    return "%" + getName() + " = fptosi " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + " to " + getType()->print();
 }
 
 ZExtInst::ZExtInst(Value *val, Type *ty, BasicBlock *parent)
@@ -202,8 +282,17 @@ std::string ZExtInst::print() const {
     return "%" + getName() + " = zext " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + " to " + getType()->print();
 }
 
+SExtInst::SExtInst(Value *val, Type *ty, BasicBlock *parent)
+    : Instruction(ty, SExt, 1, parent) {
+    setOperand(0, val);
+}
+
+std::string SExtInst::print() const {
+    return "%" + getName() + " = sext " + getOperand(0)->getType()->print() + " " + getOperand(0)->getNameStr() + " to " + getType()->print();
+}
+
 GetElementPtrInst::GetElementPtrInst(Value *ptr, std::vector<Value *> idxs, BasicBlock *parent)
-    : Instruction(PointerType::get(static_cast<PointerType *>(ptr->getType())->getElementType()), GetElementPtr, idxs.size() + 1, parent) {
+    : Instruction(computeGEPResultType(ptr, idxs), GetElementPtr, idxs.size() + 1, parent) {
     setOperand(0, ptr);
     for (size_t i = 0; i < idxs.size(); ++i) {
         setOperand(i + 1, idxs[i]);

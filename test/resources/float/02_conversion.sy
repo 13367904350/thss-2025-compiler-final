@@ -1,0 +1,36 @@
+int main() {
+    // 1. Float 转 Int (截断特性)
+    float pi = 3.14159;
+    int i_pi = pi; // 隐式转换
+    if (i_pi == 3) putint(1); else putint(0);
+    putch(10);
+
+    // 2. 负数截断
+    float neg = -3.99;
+    int i_neg = neg; 
+    // 向零取整，应该是 -3
+    if (i_neg == -3) putint(1); else putint(0);
+    putch(10);
+
+    // 3. Int 转 Float
+    int big = 100;
+    float f_big = big;
+    if (f_big == 100.0) putint(1); else putint(0);
+    putch(10);
+
+    // 4. 表达式中的隐式提升
+    int two = 2;
+    float half = 0.5;
+    // int(2) 应该被提升为 float(2.0) 然后相乘
+    float res = two * half; 
+    if (res == 1.0) putint(1); else putint(0);
+    putch(10);
+
+    // 5. 强制类型转换 (如果你的SysY支持显式cast)
+    float f = 5.5;
+    int cast_i = f;
+    if (cast_i == 5) putint(1); else putint(0);
+    putch(10);
+
+    return 0;
+}

@@ -27,19 +27,28 @@ void Function::addBasicBlock(BasicBlock *bb) {
 }
 
 std::string Function::print() const {
-    std::string s = "define " + getFunctionType()->getReturnType()->print() + " @" + getName() + "(";
-    for (size_t i = 0; i < arguments_.size(); ++i) {
-        s += arguments_[i]->getType()->print();
-        if (!arguments_[i]->print().empty()) {
-            s += " " + arguments_[i]->print();
+    std::string s;
+    // If no basic blocks, it's a declaration
+    if (basic_blocks_.empty()) {
+        s = "declare " + getFunctionType()->getReturnType()->print() + " @" + getName() + "(";
+        for (size_t i = 0; i < arguments_.size(); ++i) {
+            s += arguments_[i]->getType()->print();
+            if (i < arguments_.size() - 1)
+                s += ", ";
         }
-        if (i < arguments_.size() - 1)
-            s += ", ";
+        s += ")\n";
+    } else {
+        s = "define " + getFunctionType()->getReturnType()->print() + " @" + getName() + "(";
+        for (size_t i = 0; i < arguments_.size(); ++i) {
+            s += arguments_[i]->getType()->print() + " %" + arguments_[i]->getName();
+            if (i < arguments_.size() - 1)
+                s += ", ";
+        }
+        s += ") {\n";
+        for (auto bb : basic_blocks_) {
+            s += bb->print();
+        }
+        s += "}\n";
     }
-    s += ") {\n";
-    for (auto bb : basic_blocks_) {
-        s += bb->print();
-    }
-    s += "}\n";
     return s;
 }

@@ -1,0 +1,42 @@
+// 函数声明
+float add_floats(float a, float b) {
+    return a + b;
+}
+
+int check_positive(float x) {
+    if (x > 0.0) return 1;
+    return 0;
+}
+
+int main() {
+    // 1. IO 测试: 从输入读取浮点数
+    // 假设输入包含: 1.25 2.50
+    float in1 = getfloat();
+    float in2 = getfloat();
+    
+    // 2. 函数传参和返回值测试
+    float sum = add_floats(in1, in2);
+    
+    // 1.25 + 2.50 = 3.75
+    if (sum == 3.75) putint(1); else putint(0);
+    putch(10);
+
+    // 3. 循环测试 (While loop with float)
+    float counter = 0.0;
+    int loops = 0;
+    // 浮点数累加通常有精度误差，这里用比较大的步长避免无限循环
+    while (counter < 4.0) {
+        counter = counter + 1.0;
+        loops = loops + 1;
+    }
+    
+    if (loops == 4) putint(1); else putint(0);
+    putch(10);
+
+    // 4. 逻辑短路与浮点
+    // check_positive(1.0) 为真，check_positive(-1.0) 为假
+    if (check_positive(1.0) && !check_positive(-1.0)) putint(1); else putint(0);
+    putch(10);
+
+    return 0;
+}

@@ -1,0 +1,58 @@
+// 交换数组中的两个浮点数
+void swap(float arr[], int i, int j) {
+    float temp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = temp;
+}
+
+// 冒泡排序
+void bubble_sort(float arr[], int n) {
+    int i = 0;
+    while (i < n - 1) {
+        int j = 0;
+        while (j < n - 1 - i) {
+            // 注意这里的浮点比较
+            if (arr[j] > arr[j + 1]) {
+                swap(arr, j, j + 1);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+int main() {
+    float arr[5];
+    // 乱序数组
+    arr[0] = 5.5;
+    arr[1] = 2.2;
+    arr[2] = 9.9;
+    arr[3] = 1.1;
+    arr[4] = 2.2; // 测试重复元素
+
+    bubble_sort(arr, 5);
+
+    // 验证排序结果: 1.1, 2.2, 2.2, 5.5, 9.9
+    
+    // Check 0: 1.1
+    if (arr[0] == 1.1) putint(1); else putint(0);
+    putch(32); // space
+    
+    // Check 1: 2.2
+    if (arr[1] == 2.2) putint(1); else putint(0);
+    putch(32);
+
+    // Check 2: 2.2
+    if (arr[2] == 2.2) putint(1); else putint(0);
+    putch(32);
+
+    // Check 3: 5.5
+    if (arr[3] == 5.5) putint(1); else putint(0);
+    putch(32);
+
+    // Check 4: 9.9
+    if (arr[4] == 9.9) putint(1); else putint(0);
+    putch(10);
+
+    return 0;
+}

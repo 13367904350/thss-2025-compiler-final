@@ -1,0 +1,30 @@
+int main() {
+    float small = 0.5;
+    float zero = 0.0;
+    float neg = -1.5;
+
+    // Test 1: 小数作为条件
+    // 如果编译器生成 fptosi (float转int) 就会出错 (0.5 -> 0 -> false)
+    // 正确生成: fcmp une float %val, 0.0
+    if (small) putint(1); else putint(0);
+    putch(10);
+
+    // Test 2: 显式比较 vs 隐式比较
+    if (!zero) putint(1); else putint(0);
+    putch(10);
+
+    // Test 3: 负数也是真
+    if (neg) putint(1); else putint(0);
+    putch(10);
+
+    // Test 4: 逻辑与 (&&) 的短路与类型
+    // small(0.5) 为真，继续执行；zero(0.0) 为假
+    if (small && zero) putint(0); else putint(1);
+    putch(10);
+
+    // Test 5: 逻辑或 (||)
+    if (zero || small) putint(1); else putint(0);
+    putch(10);
+
+    return 0;
+}

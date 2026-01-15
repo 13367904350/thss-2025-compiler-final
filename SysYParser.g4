@@ -19,6 +19,7 @@ constDecl
 
 bType
     : INT
+    | FLOAT
     ;
 
 constDef
@@ -49,8 +50,7 @@ funcDef
 
 funcType
     : VOID
-    | INT
-    ;
+    | INT    | FLOAT    ;
 
 funcFParams
     : funcFParam (COMMA funcFParam)*
@@ -102,6 +102,7 @@ number
     : DEC_INT_CONST
     | OCT_INT_CONST
     | HEX_INT_CONST
+    | FLOAT_CONST
     ;
 
 unaryExp

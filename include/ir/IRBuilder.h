@@ -13,7 +13,7 @@ public:
         insert_point_ = bb;
     }
 
-    BasicBlock *getInsertPoint() const {
+    BasicBlock *GetInsertBlock() const {
         return insert_point_;
     }
 
@@ -43,6 +43,31 @@ public:
 
     BinaryInst *createSRem(Value *lhs, Value *rhs) {
         auto *inst = BinaryInst::createSRem(lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    // Float arithmetic
+    BinaryInst *createFAdd(Value *lhs, Value *rhs) {
+        auto *inst = BinaryInst::createFAdd(lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    BinaryInst *createFSub(Value *lhs, Value *rhs) {
+        auto *inst = BinaryInst::createFSub(lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    BinaryInst *createFMul(Value *lhs, Value *rhs) {
+        auto *inst = BinaryInst::createFMul(lhs, rhs, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
+    BinaryInst *createFDiv(Value *lhs, Value *rhs) {
+        auto *inst = BinaryInst::createFDiv(lhs, rhs, insert_point_);
         inst->setName(getNextName());
         return inst;
     }
@@ -129,6 +154,12 @@ public:
         return inst;
     }
 
+    SExtInst *createSExt(Value *val, Type *ty) {
+        auto *inst = new SExtInst(val, ty, insert_point_);
+        inst->setName(getNextName());
+        return inst;
+    }
+
     GetElementPtrInst *createGEP(Value *ptr, std::vector<Value *> idxs) {
         auto *inst = new GetElementPtrInst(ptr, idxs, insert_point_);
         inst->setName(getNextName());
@@ -141,6 +172,6 @@ private:
 
     // 生成指令名称
     std::string getNextName() {
-        return std::to_string(inst_count_++);
+        return "t" + std::to_string(inst_count_++);
     }
 };

@@ -1,0 +1,13 @@
+{
+  "OutputFoldersPerTargetSystem": {
+    "Local Machine": [
+      "out\\build\\x64-Debug",
+      "out\\install\\x64-Debug"
+    ]
+  },
+  "ExpandedNodes": [
+    ""
+  ],
+  "SelectedNode": "\\D:\\HW\\Coding\\3_1\\Assembly\\thss-2025-compiler-final\\CMakeLists.txt",
+  "PreviewInSolutionExplorer": false
+}

@@ -1,0 +1,33 @@
+float x = 1.1; // 全局 x
+
+void check_val(float val, float expected) {
+    if (val == expected) putint(1); else putint(0);
+    putch(32);
+}
+
+int main() {
+    float x = 2.2; // 局部 x，遮蔽全局
+    check_val(x, 2.2);
+
+    if (1 > 0) {
+        int x = 3; // 块级 x (int)，遮蔽局部 float x
+        // 这里的 x 是 int，比较时可能发生隐式转换
+        if (x == 3) putint(1); else putint(0); 
+        putch(32);
+        
+        if (1 > 0) {
+            float x = 4.4; // 更深层 x
+            check_val(x, 4.4);
+        }
+        
+        // 退出最内层，应该回到 int x = 3
+        if (x == 3) putint(1); else putint(0);
+        putch(32);
+    }
+
+    // 退出块，应该回到 float x = 2.2
+    check_val(x, 2.2);
+    putch(10);
+
+    return 0;
+}

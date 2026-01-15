@@ -3,6 +3,7 @@ lexer grammar SysYLexer;
 // Keywords
 CONST : 'const';
 INT : 'int';
+FLOAT : 'float';
 VOID : 'void';
 IF : 'if';
 ELSE : 'else';
@@ -39,6 +40,12 @@ SEMICOLON : ';';
 
 // Literals
 IDENT : [a-zA-Z_] [a-zA-Z0-9_]*;
+FLOAT_CONST : [0-9]+ '.' [0-9]* ([eE] [+-]? [0-9]+)?
+            | '.' [0-9]+ ([eE] [+-]? [0-9]+)?
+            | [0-9]+ [eE] [+-]? [0-9]+
+            | '0x' [0-9a-fA-F]+ '.' [0-9a-fA-F]* ([pP] [+-]? [0-9]+)?
+            | '0x' '.' [0-9a-fA-F]+ ([pP] [+-]? [0-9]+)?
+            ;
 DEC_INT_CONST : [1-9] [0-9]* | '0';
 OCT_INT_CONST : '0' [0-7]+;
 HEX_INT_CONST : '0' [xX] [0-9a-fA-F]+;

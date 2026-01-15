@@ -8,10 +8,10 @@ GlobalVariable::GlobalVariable(std::string name, Module *m, Type *ty, bool is_co
 }
 
 std::string GlobalVariable::print() const {
-    // getType()返回PointerType，需要获取被指向的类型
-    Type *element_ty = static_cast<PointerType*>(getType())->getElementType();
-    std::string s = "@" + getName() + " = " + (is_const_ ? "constant " : "global ") + element_ty->print() + " ";
-    if (init_val_) {
+    // Get the element type from pointer type
+    Type *elemTy = static_cast<PointerType *>(getType())->getElementType();
+    std::string s = "@" + getName() + " = " + (is_const_ ? "constant " : "global ") + elemTy->print() + " ";
+    if (init_val_ && !init_val_->isZero()) {
         s += init_val_->print();
     } else {
         s += "zeroinitializer";
