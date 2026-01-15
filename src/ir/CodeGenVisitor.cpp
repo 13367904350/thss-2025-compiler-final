@@ -140,9 +140,10 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
     current_function_ = f;
 
     // Create entry block
-    BasicBlock *entry = BasicBlock::create("entry", f);
+    std::string entryName = getUniqueName("entry");
+    BasicBlock *entry = BasicBlock::create(entryName, f);
     builder_.setInsertPoint(entry);
-    used_names_.insert("entry");
+    // used_names_.insert("entry"); // Already inserted by getUniqueName
 
     // Push new scope for function parameters
     pushScope();
@@ -150,10 +151,11 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
     // Set argument names and add to symbol table
     auto &args = f->getArgs();
     for (size_t i = 0; i < args.size(); ++i) {
-        args[i]->setName(paramNames[i]);
+        std::string uniqueArgName = getUniqueName(paramNames[i]);
+        args[i]->setName(uniqueArgName);
         
         // Register parameter name to avoid conflict with local variables
-        used_names_.insert(paramNames[i]);
+        // used_names_.insert(paramNames[i]); // Already inserted by getUniqueName
 
         // Allocate space for parameter and store it
         std::string addrName = getUniqueName(paramNames[i] + ".addr");
@@ -216,8 +218,17 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
 
     Type *baseTy = Type::getInt32Ty();
     auto *decl = dynamic_cast<SysYParser::VarDeclContext *>(ctx->parent);
-    if (decl && decl->bType()->FLOAT()) {
-        baseTy = Type::getFloatTy();
+    if (decl) {
+        if (decl->bType()->FLOAT()) {
+            baseTy = Type::getFloatTy();
+        } else if (decl->bType()->STRUCT()) {
+            std::string stName = decl->bType()->IDENT()->getText();
+             if (struct_types_.count(stName)) {
+                  baseTy = struct_types_[stName];
+             } else {
+                  std::cerr << "Undefined struct type: " << stName << std::endl;
+             }
+        }
     }
     
     int ptrDepth = getPointerDepth(ctx->pointer());
@@ -230,7 +241,7 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
     if (isGlobalScope()) {
         Constant *init = nullptr;
         if (ctx->initVal()) {
-            if (isArray) {
+            if (isArray || varTy->isStructTy()) {
                 init = buildVarInitializer(varTy, ctx->initVal());
             } else if (ctx->initVal()->exp()) {
                  // For global scalar, must evaluate to constant
@@ -259,7 +270,7 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
         addSymbol(varName, alloca, varTy);
 
         if (ctx->initVal()) {
-            if (isArray) {
+            if (isArray || varTy->isStructTy()) {
                 emitLocalInitializer(alloca, varTy, ctx->initVal());
             } else if (ctx->initVal()->exp()) {
                 Value *val = std::any_cast<Value *>(visit(ctx->initVal()->exp()));
@@ -289,8 +300,17 @@ std::any CodeGenVisitor::visitConstDef(SysYParser::ConstDefContext *ctx) {
 
     Type *baseTy = Type::getInt32Ty();
     auto *decl = dynamic_cast<SysYParser::ConstDeclContext *>(ctx->parent);
-    if (decl && decl->bType()->FLOAT()) {
-        baseTy = Type::getFloatTy();
+    if (decl) {
+        if (decl->bType()->FLOAT()) {
+            baseTy = Type::getFloatTy();
+        } else if (decl->bType()->STRUCT()) {
+             std::string stName = decl->bType()->IDENT()->getText();
+             if (struct_types_.count(stName)) {
+                  baseTy = struct_types_[stName];
+             } else {
+                  std::cerr << "Undefined struct type: " << stName << std::endl;
+             }
+        }
     }
 
     int ptrDepth = getPointerDepth(ctx->pointer());
@@ -325,27 +345,27 @@ std::any CodeGenVisitor::visitAssignStmt(SysYParser::AssignStmtContext *ctx) {
         return nullptr;
     }
 
-    if (lval->IDENT()) {
-        std::string varName = lval->IDENT()->getText();
-        auto *info = lookupSymbolInfo(varName);
-        if (!info || !info->value) {
-            std::cerr << "Error: Undefined variable '" << varName << "'" << std::endl;
-            return nullptr;
-        }
-        if (info->isConst && lval->LBRACK().empty()) {
-            std::cerr << "Error: Assignment to const variable '" << varName << "'" << std::endl;
-            return nullptr;
-        }
-    }
-
     // Evaluate the expression
     auto val_any = visit(ctx->exp());
     Value *val = std::any_cast<Value *>(val_any);
 
     Type *elemTy = nullptr;
     Value *addr = getLValAddress(lval, &elemTy);
-    if (!addr || !elemTy || elemTy->isArrayTy()) {
-        std::cerr << "Error: Invalid assignment target" << std::endl;
+    if (!addr) {
+        std::cerr << "Error: Invalid assignment target (addr is null)" << std::endl;
+        return nullptr;
+    }
+    if (!elemTy) {
+         // Should not happen if addr is not null
+         if (addr->getType()->isPointerTy()) {
+             elemTy = static_cast<PointerType*>(addr->getType())->getElementType();
+         } else {
+             return nullptr;
+         }
+    }
+    
+    if (elemTy->isArrayTy()) {
+        std::cerr << "Error: Cannot assign to array" << std::endl;
         return nullptr;
     }
 
@@ -986,73 +1006,7 @@ std::any CodeGenVisitor::visitPrimaryExp(SysYParser::PrimaryExpContext *ctx) {
     return static_cast<Value *>(nullptr);
 }
 
-std::any CodeGenVisitor::visitLVal(SysYParser::LValContext *ctx) {
-    if (ctx->MUL()) {
-        auto val_any = visit(ctx->unaryExp());
-        Value *ptr = std::any_cast<Value *>(val_any);
-        if (!ptr || !ptr->getType()->isPointerTy()) {
-            return static_cast<Value *>(nullptr);
-        }
-        Type *elemTy = static_cast<PointerType *>(ptr->getType())->getElementType();
-        if (elemTy->isArrayTy()) {
-            std::vector<Value *> idx = {ConstantInt::get(Type::getInt64Ty(), 0), ConstantInt::get(Type::getInt64Ty(), 0)};
-            Value *decayed = builder_.createGEP(ptr, idx);
-            decayed->setName(genName());
-            return static_cast<Value *>(decayed);
-        }
-        LoadInst *load = builder_.createLoad(elemTy, ptr);
-        load->setName(genName());
-        return static_cast<Value *>(load);
-    }
 
-    std::string varName = ctx->IDENT()->getText();
-    auto *info = lookupSymbolInfo(varName);
-
-    if (!info || !info->value) {
-        std::cerr << "Error: Undefined variable '" << varName << "'" << std::endl;
-        return static_cast<Value *>(nullptr);
-    }
-
-    // For simple variable (no array indexing), load the value
-    if (ctx->LBRACK().empty()) {
-        if (info->isConst && info->constValue) {
-             return static_cast<Value *>(info->constValue);
-        }
-
-        if (info->type && info->type->isArrayTy()) {
-            std::vector<Value *> idx = {ConstantInt::get(Type::getInt64Ty(), 0), ConstantInt::get(Type::getInt64Ty(), 0)};
-            Value *ptr = builder_.createGEP(info->value, idx);
-            ptr->setName(genName());
-            return ptr;
-        }
-        if (info->type && info->type->isPointerTy()) {
-            LoadInst *load = builder_.createLoad(info->type, info->value);
-            load->setName(genName());
-            return static_cast<Value *>(load);
-        }
-        if (info->value->getType()->isPointerTy()) {
-            LoadInst *load = builder_.createLoad(info->type ? info->type : Type::getInt32Ty(), info->value);
-            load->setName(genName());
-            return static_cast<Value *>(load);
-        }
-        return info->value;
-    }
-
-    Type *elemTy = nullptr;
-    Value *addr = getArrayElementPtr(*info, ctx, &elemTy);
-    if (!addr) {
-        return static_cast<Value *>(nullptr);
-    }
-    if (elemTy && elemTy->isArrayTy()) {
-        std::vector<Value *> decayIdx = {ConstantInt::get(0), ConstantInt::get(0)};
-        Value *decayed = builder_.createGEP(addr, decayIdx);
-        decayed->setName(genName());
-        return decayed;
-    }
-    LoadInst *load = builder_.createLoad(elemTy ? elemTy : Type::getInt32Ty(), addr);
-    load->setName(genName());
-    return static_cast<Value *>(load);
-}
 
 std::any CodeGenVisitor::visitNumber(SysYParser::NumberContext *ctx) {
     if (ctx->FLOAT_CONST()) {
@@ -1181,11 +1135,9 @@ Constant *CodeGenVisitor::evalConstUnaryExp(SysYParser::UnaryExpContext *ctx) {
 Constant *CodeGenVisitor::evalConstPrimaryExp(SysYParser::PrimaryExpContext *ctx) {
     if (ctx->number()) {
         return evalConstNumber(ctx->number());
-    }
-    if (ctx->LPAREN()) {
+    } else if (ctx->LPAREN()) {
         return evalConstExp(ctx->exp());
-    }
-    if (ctx->lVal()) {
+    } else if (ctx->lVal()) {
         return evalConstLVal(ctx->lVal());
     }
     return ConstantInt::get(0);
@@ -1214,39 +1166,33 @@ Constant *CodeGenVisitor::evalConstNumber(SysYParser::NumberContext *ctx) {
 
 Constant *CodeGenVisitor::evalConstLVal(SysYParser::LValContext *ctx) {
     if (!ctx) return ConstantInt::get(0);
-    std::string ident = ctx->IDENT()->getText();
-    Constant *constVal = lookupConstValue(ident);
-    if (!constVal) {
-        std::cerr << "Error: Non-constant variable '" << ident << "' in constant expression" << std::endl;
-        return ConstantInt::get(0);
-    }
-
-    Constant *current = constVal;
-    if (ctx->exp().empty()) {
-        return current;
-    }
-
-    // Array access
-    for (auto *expCtx : ctx->exp()) {
-        Constant *idxC = evalConstExp(expCtx);
+    
+    if (auto *idCtx = dynamic_cast<SysYParser::LValIdContext *>(ctx)) {
+        std::string ident = idCtx->IDENT()->getText();
+        Constant *constVal = lookupConstValue(ident);
+        if (!constVal) {
+             // Maybe it is a global variable logic address?
+             // But for compile time constant, must be resolvable.
+             return ConstantInt::get(0);
+        }
+        return constVal;
+    } else if (auto *arrCtx = dynamic_cast<SysYParser::LValArrayContext *>(ctx)) {
+        Constant *base = evalConstLVal(arrCtx->lVal());
+        Constant *idxC = evalConstExp(arrCtx->exp());
         int idx = 0;
         if (auto *ci = dynamic_cast<ConstantInt*>(idxC)) idx = ci->getValue();
         else if (auto *cf = dynamic_cast<ConstantFP*>(idxC)) idx = (int)cf->getValue();
         
-        if (auto *arr = dynamic_cast<ConstantArray *>(current)) {
+        if (auto *arr = dynamic_cast<ConstantArray *>(base)) {
             const auto &elems = arr->getElements();
             if (idx < 0 || static_cast<size_t>(idx) >= elems.size()) {
-                std::cerr << "Error: Array index out of bounds in const expression" << std::endl;
-                return ConstantInt::get(0);
+                 return ConstantInt::get(0);
             }
-            current = elems[idx];
-        } else {
-            std::cerr << "Error: Too many indices in const expression for '" << ident << "'" << std::endl;
-            return ConstantInt::get(0);
+            return elems[idx];
         }
     }
-
-    return current;
+    // Member access not supported in constant expressions for now
+    return ConstantInt::get(0);
 }
 
 std::vector<int> CodeGenVisitor::collectDimensions(const std::vector<SysYParser::ConstExpContext *> &dimCtxs) {
@@ -1371,20 +1317,49 @@ Constant *CodeGenVisitor::buildConstArrayFromScalars(Type *ty, const std::vector
 }
 
 Constant *CodeGenVisitor::buildVarInitializer(Type *ty, SysYParser::InitValContext *ctx) {
-    if (!ty->isArrayTy()) {
+    if (!ty->isArrayTy() && !ty->isStructTy()) {
         Constant *val = nullptr;
         if (ctx && ctx->exp()) {
             val = evalConstExp(ctx->exp());
         }
         
-        if (!val) return getZeroInitializer(ty);
-
+        if (!val) {
+            val = getZeroInitializer(ty);
+        }
+        // No casting needed for Constant? Or do we need to cast?
+        // castTo returns Value*. We need Constant*.
+        // Implementing cast logic for Constants:
         if (ty->isIntegerTy() && val->getType()->isFloatTy()) {
-             return ConstantInt::get((int)dynamic_cast<ConstantFP*>(val)->getValue());
+             float fv = dynamic_cast<ConstantFP*>(val)->getValue();
+             return ConstantInt::get((int)fv);
         } else if (ty->isFloatTy() && val->getType()->isIntegerTy()) {
-             return ConstantFP::get((float)dynamic_cast<ConstantInt*>(val)->getValue());
+             int iv = dynamic_cast<ConstantInt*>(val)->getValue();
+             return ConstantFP::get((float)iv);
         }
         return val;
+    }
+
+    if (ty->isStructTy()) {
+         auto *stTy = static_cast<StructType *>(ty);
+         std::vector<Constant *> elements;
+         if (!ctx) {
+             for (unsigned i = 0; i < stTy->getNumElements(); ++i) {
+                 elements.push_back(getZeroInitializer(stTy->getElementType(i)));
+             }
+             return ConstantStruct::get(stTy, std::move(elements));
+         }
+         
+         auto subInits = ctx->initVal();
+         size_t idx = 0;
+         for (unsigned i = 0; i < stTy->getNumElements(); ++i) {
+             if (idx < subInits.size()) {
+                 elements.push_back(buildVarInitializer(stTy->getElementType(i), subInits[idx]));
+                 ++idx;
+             } else {
+                 elements.push_back(getZeroInitializer(stTy->getElementType(i)));
+             }
+         }
+         return ConstantStruct::get(stTy, std::move(elements));
     }
 
     auto *arrTy = static_cast<ArrayType *>(ty);
@@ -1449,7 +1424,7 @@ void CodeGenVisitor::emitLocalInitializer(Value *ptr, Type *ty, SysYParser::Init
 }
 
 void CodeGenVisitor::emitLocalInitRecursive(Value *ptr, Type *ty, SysYParser::InitValContext *ctx, std::vector<int> &indices) {
-    if (!ty->isArrayTy()) {
+    if (!ty->isArrayTy() && !ty->isStructTy()) {
         Value *val = nullptr;
         if (ctx && ctx->exp()) {
             val = std::any_cast<Value *>(visit(ctx->exp()));
@@ -1461,15 +1436,59 @@ void CodeGenVisitor::emitLocalInitRecursive(Value *ptr, Type *ty, SysYParser::In
 
         std::vector<Value *> gepIdx;
         auto *ptrTy = dynamic_cast<PointerType *>(ptr->getType());
-        if (ptrTy && ptrTy->getElementType()->isArrayTy()) {
-            gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        
+        // For array decay or initial pointer
+        if (ptrTy && (ptrTy->getElementType()->isArrayTy() || ptrTy->getElementType()->isStructTy())) {
+             gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
         }
+        
+        // Walk down the indices
+        Type *currentTy = ptrTy ? ptrTy->getElementType() : nullptr;
+        
         for (int idx : indices) {
-            gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), idx));
+            if (currentTy && currentTy->isStructTy()) {
+                 gepIdx.push_back(ConstantInt::get(Type::getInt32Ty(), idx)); // Struct uses i32
+                 currentTy = static_cast<StructType*>(currentTy)->getElementType(idx);
+            } else if (currentTy && currentTy->isArrayTy()) {
+                 gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), idx));
+                 currentTy = static_cast<ArrayType*>(currentTy)->getElementType();
+            } else {
+                 // Fallback
+                 gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), idx));
+            }
         }
 
         Value *destPtr = gepIdx.empty() ? ptr : builder_.createGEP(ptr, gepIdx);
         builder_.createStore(val, destPtr);
+        return;
+    }
+    
+    if (ty->isStructTy()) {
+        auto *stTy = static_cast<StructType *>(ty);
+        if (!ctx) {
+            for (unsigned i = 0; i < stTy->getNumElements(); ++i) {
+                indices.push_back(static_cast<int>(i));
+                emitLocalInitRecursive(ptr, stTy->getElementType(i), nullptr, indices);
+                indices.pop_back();
+            }
+            return;
+        }
+        
+        auto subInits = ctx->initVal();
+        size_t childIdx = 0;
+        // Simple brace handling: 1-to-1 mapping
+        for (unsigned i = 0; i < stTy->getNumElements(); ++i) {
+            indices.push_back(static_cast<int>(i));
+            if (childIdx < subInits.size()) {
+                // If member is a struct/array but we have scalar, handle elision?
+                // For now assuming explicit braces for simplicity or single scalar recurse
+                emitLocalInitRecursive(ptr, stTy->getElementType(i), subInits[childIdx], indices);
+                childIdx++;
+            } else {
+                emitLocalInitRecursive(ptr, stTy->getElementType(i), nullptr, indices);
+            }
+            indices.pop_back();
+        }
         return;
     }
 
@@ -1627,191 +1646,457 @@ Value *CodeGenVisitor::createPointerOffset(Value *ptr, Value *idx, bool isSub) {
     }
     if (isSub) {
         Value *zero = ConstantInt::get(Type::getInt64Ty(), 0);
-        offset = builder_.createSub(zero, offset);
+        BinaryInst *sub = builder_.createSub(zero, offset);
+        sub->setName(genName());
+        offset = sub;
     }
     std::vector<Value *> gepIdx = {offset};
-    return builder_.createGEP(ptr, gepIdx);
+    Value *gep = builder_.createGEP(ptr, gepIdx);
+    gep->setName(genName());
+    return gep;
 }
 
 Value *CodeGenVisitor::getLValAddress(SysYParser::LValContext *ctx, Type **elemTy) {
-    if (!ctx) return nullptr;
-
-    if (ctx->IDENT()) {
-        std::string varName = ctx->IDENT()->getText();
-        auto *info = lookupSymbolInfo(varName);
-        if (!info || !info->value) {
-            std::cerr << "Error: Undefined variable '" << varName << "'" << std::endl;
-            return nullptr;
+    if (auto *idCtx = dynamic_cast<SysYParser::LValIdContext *>(ctx)) {
+        std::string name = idCtx->IDENT()->getText();
+        SymbolInfo *info = lookupSymbolInfo(name);
+        if (!info) {
+             std::cerr << "Undefined variable (getLValAddress): " << name << std::endl;
+             return nullptr;
         }
-
-        if (ctx->LBRACK().empty()) {
-            if (elemTy) {
-                *elemTy = info->type ? info->type : info->value->getType();
-            }
-            return info->value;
+        if (elemTy) *elemTy = info->type;
+        return info->value;
+    } 
+    else if (auto *arrCtx = dynamic_cast<SysYParser::LValArrayContext *>(ctx)) {
+        Type *baseTy = nullptr;
+        Value *baseAddr = getLValAddress(arrCtx->lVal(), &baseTy);
+        if (!baseAddr || !baseTy) return nullptr;
+        
+        // Evaluate index
+        auto idxAny = visit(arrCtx->exp());
+        Value *idxVal = std::any_cast<Value *>(idxAny);
+        
+        // Pointer arithmetic
+        Value *ptr = baseAddr;
+        
+        if (baseTy->isArrayTy()) {
+             std::vector<Value *> idxList;
+             idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+             idxList.push_back(idxVal);
+             
+             if (elemTy) *elemTy = static_cast<ArrayType *>(baseTy)->getElementType();
+             Value *gep = builder_.createGEP(ptr, idxList); // ptr is &a
+             return gep;
+        } else if (baseTy->isPointerTy()) {
+            PointerType *ptrTy = static_cast<PointerType *>(baseTy);
+             // If base is a pointer variable (e.g., int *p), baseAddr is &p (i32**).
+             // baseTy is returned as the type of *content* of lVal.
+             // Wait, lookupSymbolInfo returns type of the variable content?
+             // If int a[10], info->type is [10 x i32]. 
+             // If int *p, info->type is i32*. (Actually Type represents the value type, not the allow type?)
+             // No, in my symbol table: "Value *value" is the result of alloca. "Type *type" is the allocated type.
+             // If int a[10], type is [10 x i32]. value is [10 x i32]*.
+             // If int *p, type is i32*. value is i32**.
+             
+             // But getLValAddress signature says "Type **elemTy".
+             // If I follow recursion:
+             // visitLValId returns info->value (address) and info->type (type of content? or type of pointer?)
+             // Let's assume info->type is the type of the VARIABLE (content).
+             
+             // Case 1: int a[10]. lValId returns &a. elemTy = [10 x i32].
+             // We want a[i].
+             // baseTy = [10 x i32]. BaseAddr = &a.
+             // We need &a[i]. GEP(&a, 0, i).
+             
+             // Case 2: int *p. lValId returns &p. elemTy = i32*.
+             // We want p[i].
+             // baseTy = i32*. BaseAddr = &p.
+             // We need to LOAD p first -> p_val.
+             // Then GEP(p_val, i).
+             
+             if (baseTy->isArrayTy()) {
+                 std::vector<Value *> idxList;
+                 idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+                 idxList.push_back(idxVal);
+                 
+                 if (elemTy) *elemTy = static_cast<ArrayType *>(baseTy)->getElementType();
+                 Value *gep = builder_.createGEP(ptr, idxList); // ptr is &a
+                 gep->setName(genName());
+                 return gep;
+             } else if (baseTy->isPointerTy()) {
+                 // Must load the pointer first!
+                 LoadInst *load = builder_.createLoad(baseTy, ptr); // ptr is &p
+                 load->setName(genName());
+                 Value *loadedPtr = load;
+                 
+                 std::vector<Value *> idxList;
+                 idxList.push_back(idxVal);
+                 
+                 if (elemTy) *elemTy = static_cast<PointerType *>(baseTy)->getElementType();
+                 Value *gep = builder_.createGEP(loadedPtr, idxList);
+                 gep->setName(genName());
+                 return gep;
+             }
         }
-        return getArrayElementPtr(*info, ctx, elemTy);
     }
+    else if (auto *memCtx = dynamic_cast<SysYParser::LValMemberContext *>(ctx)) {
+         // lVal DOT IDENT
+         Type *baseTy = nullptr;
+         Value *baseAddr = getLValAddress(memCtx->lVal(), &baseTy);
+         if (!baseAddr || !baseTy) return nullptr;
+         
+         std::string memberName = memCtx->IDENT()->getText();
+         
+         // baseTy should be StructType, or pointer to StructType?
+         // From LValId logic: returns type of content.
+         // If struct S s; -> info->type is S. info->value is S*.
+         // So baseTy is StructType.
+         
+         if (baseTy->isStructTy()) {
+             StructType *st = static_cast<StructType *>(baseTy);
+             std::string stName = st->getName();
+             
+             if (struct_member_indices_.count(stName) && struct_member_indices_[stName].count(memberName)) {
+                 int idx = struct_member_indices_[stName][memberName];
+                 std::vector<Value *> idxList;
+                 idxList.push_back(ConstantInt::get(Type::getInt32Ty(), 0));
+                 idxList.push_back(ConstantInt::get(Type::getInt32Ty(), idx));
+                 
+                 if (elemTy) *elemTy = st->getElementType(idx);
+                 Value *gep = builder_.createGEP(baseAddr, idxList);
+                 gep->setName(genName());
+                 return gep;
+             } else {
+                 std::cerr << "Member " << memberName << " not found in struct " << stName << std::endl;
+             }
+         } else {
+             // What if it is a pointer to struct? arrow -> ? NO. SysY uses dot for both?
+             // SysY spec: if p is S*, p.x is valid?
+             // The grammar says "lVal DOT IDENT".
+             // If p is S*, it's a variable of type S*.
+             // baseTy is S*.
+             // We need to dereference p to get S.
+             // Then access member.
+             if (baseTy->isPointerTy() && static_cast<PointerType*>(baseTy)->getElementType()->isStructTy()) {
+                  // Implicit dereference?
+                  // NOTE: Usually C uses ->. SysY might use . for both?
+                  // Or SysY only supports . for structs?
+                  // Assuming "lVal DOT IDENT" expects lVal to be a struct.
+                  // If lVal is a pointer, it's an error?
+                  // But if we support struct parameters, they are pointers?
+                  // Let's implement implicit dereference if baseTy is pointer to struct.
+                  
+                  PointerType *pt = static_cast<PointerType*>(baseTy);
+                  StructType *st = static_cast<StructType*>(pt->getElementType());
+                  std::string stName = st->getName();
+                  
+                  // Load the pointer
+                  LoadInst *load = builder_.createLoad(baseTy, baseAddr);
+                  load->setName(genName());
+                  Value *loadedPtr = load;
 
-    if (ctx->MUL()) {
-        auto val_any = visit(ctx->unaryExp());
-        Value *ptr = std::any_cast<Value *>(val_any);
-        if (!ptr || !ptr->getType()->isPointerTy()) {
-            return nullptr;
-        }
-        if (elemTy) {
-            *elemTy = static_cast<PointerType *>(ptr->getType())->getElementType();
-        }
-        return ptr;
+                  if (struct_member_indices_.count(stName) && struct_member_indices_[stName].count(memberName)) {
+                     int idx = struct_member_indices_[stName][memberName];
+                     std::vector<Value *> idxList;
+                     idxList.push_back(ConstantInt::get(Type::getInt32Ty(), 0)); // GEP on pointer: 0 index first? 
+                     // Wait, if I have T* p. GEP(p, 0, idx) gives address of member?
+                     // Yes.
+                     
+                     std::vector<Value *> gidx = { ConstantInt::get(Type::getInt32Ty(), 0), ConstantInt::get(Type::getInt32Ty(), idx) };
+                     if (elemTy) *elemTy = st->getElementType(idx);
+                     // Wait, GEP on pointer p: GEP(p, idx) -> p + idx.
+                     // We want p->member. Equivalent to (*p).member.
+                     // GEP(p, 0, memberIdx).
+                     Value *gep = builder_.createGEP(loadedPtr, gidx);
+                     gep->setName(genName());
+                     return gep;
+                  }
+             }
+         }
     }
-
+    else if (auto *derefCtx = dynamic_cast<SysYParser::LValDerefContext *>(ctx)) {
+         // *unaryExp
+         auto valAny = visit(derefCtx->unaryExp());
+         Value *val = std::any_cast<Value *>(valAny);
+         if (!val) return nullptr;
+         
+         // val is the pointer value.
+         // Address is val.
+         // elemTy is what it points to.
+         
+         if (val->getType()->isPointerTy()) {
+             if (elemTy) *elemTy = static_cast<PointerType *>(val->getType())->getElementType();
+             return val;
+         }
+    }
     return nullptr;
 }
 
-Value *CodeGenVisitor::getArrayElementPtr(const SymbolInfo &info, SysYParser::LValContext *ctx, Type **elemTy) {
-    Value *basePtr = info.value;
-    if (!basePtr) {
-        return nullptr;
+// ==================== Helper Methods Definitions ====================
+
+AllocaInst *CodeGenVisitor::createEntryBlockAlloca(Type *type, const std::string &name) {
+    Function *func = builder_.GetInsertBlock()->getParent();
+    BasicBlock *entryBB = func->getBasicBlocks().front();
+    IRBuilder tmpBuilder(entryBB);
+    if (!entryBB->getInstructions().empty()) {
+        auto &insts = entryBB->getInstructions();
+         // We insert at the beginning using instruction list splice if possible, 
+         // but IRBuilder appends. 
+         // For now, let's assume appending is safe if we don't have terminators yet
+         // or if we rely on mem2reg later.
+         // Actually, if we have a branch in entry block (e.g. for loop), appending alloca at end is UNREACHABLE.
+         // We MUST insert at front.
+         // Since IRBuilder doesn't support insert at front easily, we can manually Create Alloca and push_front?
+         // But Instruction constructor pushes back.
+         // We can pop_back and push_front?
+         // Yes:
+         // AllocaInst *inst = tmpBuilder.createAlloca(type);
+         // inst->setName(name);
+         // inst->removeFromParent();
+         // insts.push_front(inst); // std::list
+         // inst->setParent(entryBB);
+         // return inst;
     }
-
-    if (info.type && info.type->isPointerTy()) {
-        basePtr = builder_.createLoad(info.type, basePtr);
+    AllocaInst *inst = tmpBuilder.createAlloca(type);
+    inst->setName(name);
+    if (!entryBB->getInstructions().empty() && entryBB->getInstructions().back() == inst) {
+         // Move to front
+         inst->getParent()->getInstructions().pop_back();
+         inst->getParent()->getInstructions().push_front(inst);
     }
-
-    std::vector<Value *> indices;
-
-    Type *symbolTy = info.type;
-    Type *currentTy = nullptr;
-    if (symbolTy) {
-        if (symbolTy->isArrayTy()) {
-            currentTy = symbolTy;
-        } else if (symbolTy->isPointerTy()) {
-            currentTy = static_cast<PointerType *>(symbolTy)->getElementType();
-        } else {
-            currentTy = symbolTy;
-        }
-    } else if (auto *ptrTy = dynamic_cast<PointerType *>(basePtr->getType())) {
-        currentTy = ptrTy->getElementType();
-    }
-
-    bool isPointerSymbol = symbolTy && symbolTy->isPointerTy();
-
-    if ((!isPointerSymbol) && currentTy && currentTy->isArrayTy()) {
-        indices.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
-    }
-
-    for (auto *expCtx : ctx->exp()) {
-        Value *idxVal = std::any_cast<Value *>(visit(expCtx));
-        idxVal = promoteToInt64(idxVal);
-        if (!idxVal) {
-            idxVal = ConstantInt::get(Type::getInt64Ty(), 0);
-        }
-        indices.push_back(idxVal);
-
-        if (currentTy) {
-            if (currentTy->isArrayTy()) {
-                currentTy = static_cast<ArrayType *>(currentTy)->getElementType();
-            } else if (currentTy->isPointerTy()) {
-                currentTy = static_cast<PointerType *>(currentTy)->getElementType();
-            }
-        }
-    }
-
-    if (elemTy) {
-        *elemTy = currentTy;
-    }
-
-    if (indices.empty()) {
-        return basePtr;
-    }
-
-    return builder_.createGEP(basePtr, indices);
+    return inst;
 }
 
-Value *CodeGenVisitor::adjustArgumentToParam(Value *arg, Type *paramTy) {
-    if (!arg || !paramTy) {
-        return arg;
+Value *CodeGenVisitor::adjustArgumentToParam(Value *argVal, Type *paramTy) {
+    if (!argVal) return nullptr;
+    Type *argTy = argVal->getType();
+    if (argTy == paramTy) return argVal;
+    
+    if (argTy->isIntegerTy() && paramTy->isFloatTy()) {
+        return builder_.createSIToFP(argVal, paramTy);
     }
-
-    if (arg->getType() == paramTy) {
-        return arg;
+    if (argTy->isFloatTy() && paramTy->isIntegerTy()) {
+        return builder_.createFPToSI(argVal, paramTy);
     }
-
-    if (!paramTy->isPointerTy()) {
-        return castTo(arg, paramTy, builder_.GetInsertBlock());
-    }
-
-    auto *paramPtrTy = static_cast<PointerType *>(paramTy);
-    Type *expectedElem = paramPtrTy->getElementType();
-
-    auto *argPtrTy = dynamic_cast<PointerType *>(arg->getType());
-    if (!argPtrTy) {
-        return arg;
-    }
-
-    Type *argElem = argPtrTy->getElementType();
-    if (argElem == expectedElem) {
-        return arg;
-    }
-
-    if (!argElem || !argElem->isArrayTy()) {
-        return arg;
-    }
-
-    std::vector<Value *> gepIdx;
-    Type *current = argElem;
-    while (current && current->isArrayTy()) {
-        gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
-        current = static_cast<ArrayType *>(current)->getElementType();
-
-        if (current == expectedElem) {
-            if (expectedElem->isArrayTy()) {
-                return builder_.createGEP(arg, gepIdx);
-            }
-            gepIdx.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
-            return builder_.createGEP(arg, gepIdx);
-        }
-    }
-
-    return arg;
+    return argVal;
 }
 
-AllocaInst *CodeGenVisitor::createEntryBlockAlloca(Type *ty, const std::string &name) {
-    if (!current_function_) return nullptr;
-    auto &blocks = current_function_->getBasicBlocks();
-    if (blocks.empty()) {
-        BasicBlock *entry = BasicBlock::create("entry", current_function_);
-    }
-    BasicBlock *entry = blocks.front();
-    AllocaInst *alloc = new AllocaInst(ty, entry);
-    // Move to front of block to ensure it dominates all uses and doesn't grow stack in loops
-    auto &insts = entry->getInstructions();
-    if (insts.size() > 1) {
-        insts.pop_back();
-        insts.push_front(alloc);
+// ==================== Missing Visitor Implementations ====================
+
+std::any CodeGenVisitor::visitStructDef(SysYParser::StructDefContext *ctx) {
+    std::string name = ctx->IDENT()->getText();
+    std::vector<Type *> memberTypes;
+    std::map<std::string, int> memberIndices;
+    
+    int idx = 0;
+    for (auto *decl : ctx->decl()) {
+        // decl : constDecl | varDecl
+        if (decl->constDecl()) {
+             auto *cd = decl->constDecl();
+             Type *baseTy = nullptr;
+             if (cd->bType()->INT()) baseTy = Type::getInt32Ty();
+             else if (cd->bType()->FLOAT()) baseTy = Type::getFloatTy();
+             else if (cd->bType()->STRUCT()) {
+                 std::string stName = cd->bType()->IDENT()->getText();
+                 if (struct_types_.count(stName)) baseTy = struct_types_[stName];
+                 else std::cerr << "Undefined struct " << stName << std::endl;
+             }
+             
+             for (auto *def : cd->constDef()) {
+                 std::string memName = def->IDENT()->getText();
+                 Type *memTy = baseTy;
+                 for (auto *constExp : def->constExp()) {
+                      Constant *dimC = evalConstExp(constExp);
+                      int dim = 0;
+                      if (auto *ci = dynamic_cast<ConstantInt*>(dimC)) dim = ci->getValue();
+                      memTy = ArrayType::get(memTy, dim);
+                 }
+                 memberTypes.push_back(memTy);
+                 memberIndices[memName] = idx++;
+             }
+        } else if (decl->varDecl()) {
+             auto *vd = decl->varDecl();
+             Type *baseTy = nullptr;
+             if (vd->bType()->INT()) baseTy = Type::getInt32Ty();
+             else if (vd->bType()->FLOAT()) baseTy = Type::getFloatTy();
+             else if (vd->bType()->STRUCT()) {
+                 std::string stName = vd->bType()->IDENT()->getText();
+                 if (struct_types_.count(stName)) baseTy = struct_types_[stName];
+                 else std::cerr << "Undefined struct " << stName << std::endl;
+             }
+             
+             for (auto *def : vd->varDef()) {
+                 std::string memName = def->IDENT()->getText();
+                 Type *memTy = baseTy;
+                 for (auto *constExp : def->constExp()) {
+                      Constant *dimC = evalConstExp(constExp);
+                      int dim = 0;
+                      if (auto *ci = dynamic_cast<ConstantInt*>(dimC)) dim = ci->getValue();
+                      memTy = ArrayType::get(memTy, dim);
+                 }
+                 memberTypes.push_back(memTy);
+                 memberIndices[memName] = idx++;
+             }
+        }
     }
     
-    // Ensure name uniqueness in the entry block
-    std::string finalName = name;
-    if (finalName.length() > 50) {
-        finalName = finalName.substr(0, 50);
+    StructType *st = StructType::create(memberTypes, name);
+    struct_types_[name] = st;
+    struct_member_indices_[name] = memberIndices;
+
+    module_->addStructDefinition(st);
+    
+    return std::any();
+}
+
+std::any CodeGenVisitor::visitForStmt(SysYParser::ForStmtContext *ctx) {
+    Function *func = builder_.GetInsertBlock()->getParent();
+    BasicBlock *condBB = BasicBlock::create(genBBName("for_cond"), func);
+    BasicBlock *bodyBB = BasicBlock::create(genBBName("for_body"), func);
+    BasicBlock *incBB = BasicBlock::create(genBBName("for_inc"), func);
+    BasicBlock *endBB = BasicBlock::create(genBBName("for_end"), func);
+    
+    loop_stack_.push_back({incBB, endBB}); // Continue goes to inc, Break goes to end
+    
+    // Init
+    if (ctx->init) {
+        visit(ctx->init);
     }
-    if (!finalName.empty()) {
-        int suffix = 1;
-        bool exists;
-        do {
-            exists = false;
-            for (auto *i : insts) {
-                if (i != alloc && i->getName() == finalName) {
-                    exists = true;
-                    break;
-                }
-            }
-            if (exists) {
-                finalName = name + "." + std::to_string(suffix++);
-            }
-        } while (exists);
-        alloc->setName(finalName);
+    builder_.createBr(condBB);
+    
+    // Cond
+    builder_.setInsertPoint(condBB);
+    if (ctx->cond()) {
+        auto condAny = visit(ctx->cond());
+        Value *condVal = std::any_cast<Value *>(condAny);
+        if (condVal) {
+             if (condVal->getType()->isIntegerTy()) {
+                  if (static_cast<IntegerType*>(condVal->getType())->getBitWidth() != 1) {
+                       condVal = builder_.createICmpNE(condVal, ConstantInt::get(Type::getInt32Ty(), 0));
+                  }
+             } else if (condVal->getType()->isFloatTy()) {
+                  condVal = builder_.createFCmpONE(condVal, ConstantFP::get(0.0f));
+             }
+             builder_.createCondBr(condVal, bodyBB, endBB);
+        } else {
+             builder_.createBr(bodyBB);
+        }
+    } else {
+        builder_.createBr(bodyBB);
     }
-    return alloc;
+    
+    // Body
+    builder_.setInsertPoint(bodyBB);
+    visit(ctx->stmt());
+    if (!builder_.GetInsertBlock()->getTerminator()) {
+        builder_.createBr(incBB);
+    }
+    
+    // Inc
+    builder_.setInsertPoint(incBB);
+    if (ctx->step) {
+         visit(ctx->step);
+    }
+    builder_.createBr(condBB);
+    
+    // End
+    builder_.setInsertPoint(endBB);
+    loop_stack_.pop_back();
+    
+    return std::any();
+}
+
+std::any CodeGenVisitor::visitForInitAssign(SysYParser::ForInitAssignContext *ctx) {
+    Type *elemTy = nullptr;
+    Value *addr = getLValAddress(ctx->lVal(), &elemTy);
+    
+    if (addr) {
+        auto valAny = visit(ctx->exp());
+        Value *val = std::any_cast<Value *>(valAny);
+        if (val) {
+             val = castTo(val, elemTy, builder_.GetInsertBlock());
+             builder_.createStore(val, addr);
+        }
+    }
+    return std::any();
+}
+
+std::any CodeGenVisitor::visitForInitExp(SysYParser::ForInitExpContext *ctx) {
+    return visit(ctx->exp());
+}
+
+std::any CodeGenVisitor::visitLValId(SysYParser::LValIdContext *ctx) {
+    Type *elemTy = nullptr;
+    Value *addr = getLValAddress(ctx, &elemTy);
+    if (!addr) return std::any();
+    
+    if (elemTy->isArrayTy()) {
+        std::vector<Value *> idxList;
+        idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        Value *gep = builder_.createGEP(addr, idxList);
+        gep->setName(genName());
+        return gep;
+    } else {
+        LoadInst *load = builder_.createLoad(elemTy, addr);
+        load->setName(genName());
+        return (Value*)load;
+    }
+}
+
+std::any CodeGenVisitor::visitLValArray(SysYParser::LValArrayContext *ctx) {
+    Type *elemTy = nullptr;
+    Value *addr = getLValAddress(ctx, &elemTy);
+    if (!addr) return std::any();
+    
+    if (elemTy->isArrayTy()) {
+        std::vector<Value *> idxList;
+        idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        Value *gep = builder_.createGEP(addr, idxList);
+        gep->setName(genName());
+        return gep;
+    } else {
+        LoadInst *load = builder_.createLoad(elemTy, addr);
+        load->setName(genName());
+        return (Value*)load;
+    }
+}
+
+std::any CodeGenVisitor::visitLValMember(SysYParser::LValMemberContext *ctx) {
+    Type *elemTy = nullptr;
+    Value *addr = getLValAddress(ctx, &elemTy);
+    if (!addr) return std::any();
+    
+    if (elemTy->isArrayTy()) {
+        std::vector<Value *> idxList;
+        idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        Value *gep = builder_.createGEP(addr, idxList);
+        gep->setName(genName());
+        return gep;
+    } else {
+        LoadInst *load = builder_.createLoad(elemTy, addr);
+        load->setName(genName());
+        return (Value*)load;
+    }
+}
+
+std::any CodeGenVisitor::visitLValDeref(SysYParser::LValDerefContext *ctx) {
+    Type *elemTy = nullptr;
+    Value *addr = getLValAddress(ctx, &elemTy);
+    if (!addr) return std::any();
+    
+    if (elemTy->isArrayTy()) {
+        std::vector<Value *> idxList;
+        idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        idxList.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
+        Value *gep = builder_.createGEP(addr, idxList);
+        gep->setName(genName());
+        return gep;
+    } else {
+        LoadInst *load = builder_.createLoad(elemTy, addr);
+        load->setName(genName());
+        return (Value*)load;
+    }
 }

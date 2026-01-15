@@ -1,0 +1,37 @@
+
+struct Point {
+  int x;
+  int y;
+};
+
+struct Rect {
+  struct Point p1;
+  struct Point p2;
+};
+
+struct Node {
+  int val;
+  int next;
+};
+
+struct Data {
+  int arr[10];
+  float f;
+};
+
+struct Mixed {
+  int a;
+  float b;
+  int c;
+};
+    
+int main() {
+          struct Data d;
+          int i;
+          for(i = 0; i < 10; i = i + 1) {
+            d.arr[i] = i * i;
+          }
+          d.f = 3.14;
+          if (d.arr[5] == 25) return 0;
+          return 1;
+        }

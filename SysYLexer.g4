@@ -8,9 +8,11 @@ VOID : 'void';
 IF : 'if';
 ELSE : 'else';
 WHILE : 'while';
+FOR : 'for';
 BREAK : 'break';
 CONTINUE : 'continue';
 RETURN : 'return';
+STRUCT : 'struct';
 
 // Operators
 PLUS : '+';
@@ -38,6 +40,7 @@ LBRACE : '{';
 RBRACE : '}';
 COMMA : ',';
 SEMICOLON : ';';
+DOT : '.';
 
 // Literals
 IDENT : [a-zA-Z_] [a-zA-Z0-9_]*;

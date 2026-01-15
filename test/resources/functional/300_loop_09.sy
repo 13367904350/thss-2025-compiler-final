@@ -1,0 +1,12 @@
+int main() {
+          int i = 100;
+          int sum = 0;
+          {
+              int i;
+              for (i = 0; i < 10; i = i + 1) {
+                sum = sum + i;
+              }
+          }
+          if (i == 100 && sum == 45) return 0;
+          return 1;
+        }

@@ -1,0 +1,25 @@
+struct Point {
+    int x;
+    int y;
+};
+
+int main() {
+    struct Point p;
+    p.x = 0;
+    p.y = 1;
+    
+    int sum = 0;
+    int i;
+    for (i = 0; i < 10; i = i + 1) {
+        sum = sum + p.y;
+    }
+    // sum should be 10.
+    
+    // Check nested update
+    for (i = 0; i < 5; i = i + 1) {
+        p.x = p.x + 2;
+    }
+    // p.x should be 10.
+    
+    return sum + p.x; // 20
+}

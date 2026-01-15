@@ -13,7 +13,8 @@ public:
         FunctionTyID,
         PointerTyID,
         ArrayTyID,
-        FloatTyID
+        FloatTyID,
+        StructTyID
     };
 
     explicit Type(TypeID tid) : tid_(tid) {}
@@ -28,6 +29,7 @@ public:
     bool isPointerTy() const { return tid_ == PointerTyID; }
     bool isArrayTy() const { return tid_ == ArrayTyID; }
     bool isFloatTy() const { return tid_ == FloatTyID; }
+    bool isStructTy() const { return tid_ == StructTyID; }
 
     static Type *getVoidTy();
     static Type *getLabelTy();
@@ -103,4 +105,23 @@ public:
 
 private:
     Type *contained_;
+};
+
+class StructType : public Type {
+public:
+    StructType(std::vector<Type *> elements, std::string name = "")
+        : Type(StructTyID), elements_(std::move(elements)), name_(std::move(name)) {}
+
+    static StructType *get(std::vector<Type *> elements);
+    static StructType *create(std::vector<Type *> elements, std::string name);
+
+    Type *getElementType(unsigned i) const { return elements_[i]; }
+    unsigned getNumElements() const { return elements_.size(); }
+    std::string getName() const { return name_; }
+
+    std::string print() override;
+
+private:
+    std::vector<Type *> elements_;
+    std::string name_;
 };

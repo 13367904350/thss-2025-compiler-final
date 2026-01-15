@@ -5,12 +5,16 @@ options {
 }
 
 compUnit
-    : (decl | funcDef)+ EOF
+    : (decl | funcDef | structDef)+ EOF
     ;
 
 decl
     : constDecl
     | varDecl
+    ;
+
+structDef
+    : STRUCT IDENT LBRACE (decl)* RBRACE SEMICOLON
     ;
 
 constDecl
@@ -20,6 +24,7 @@ constDecl
 bType
     : INT
     | FLOAT
+    | STRUCT IDENT
     ;
 
 constDef
@@ -70,14 +75,20 @@ blockItem
     ;
 
 stmt
-    : lVal ASSIGN exp SEMICOLON                    # assignStmt
-    | (exp)? SEMICOLON                             # expStmt
-    | block                                        # blockStmt
-    | IF LPAREN cond RPAREN stmt (ELSE stmt)?      # ifStmt
-    | WHILE LPAREN cond RPAREN stmt                # whileStmt
-    | BREAK SEMICOLON                              # breakStmt
-    | CONTINUE SEMICOLON                           # continueStmt
-    | RETURN (exp)? SEMICOLON                      # returnStmt
+    : lVal ASSIGN exp SEMICOLON                                            # assignStmt
+    | (exp)? SEMICOLON                                                     # expStmt
+    | block                                                                # blockStmt
+    | IF LPAREN cond RPAREN stmt (ELSE stmt)?                              # ifStmt
+    | FOR LPAREN (init=forInit)? SEMICOLON (cond)? SEMICOLON (step=forInit)? RPAREN stmt # forStmt
+    | WHILE LPAREN cond RPAREN stmt                                        # whileStmt
+    | BREAK SEMICOLON                                                      # breakStmt
+    | CONTINUE SEMICOLON                                                   # continueStmt
+    | RETURN (exp)? SEMICOLON                                              # returnStmt
+    ;
+
+forInit
+    : lVal ASSIGN exp                                                      # forInitAssign
+    | exp                                                                  # forInitExp
     ;
 
 exp
@@ -89,8 +100,10 @@ cond
     ;
 
 lVal
-    : IDENT (LBRACK exp RBRACK)*
-    | MUL unaryExp
+    : lVal DOT IDENT               # lValMember
+    | lVal LBRACK exp RBRACK       # lValArray
+    | IDENT                        # lValId
+    | MUL unaryExp                 # lValDeref
     ;
 
 primaryExp

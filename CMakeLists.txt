@@ -20,11 +20,8 @@ file(GLOB SRC_FILES
     src/ir/*.cpp
 )
 
-set(VISITOR_SRC
-    src/visitor/IRGenerator.cpp
-)
+add_executable(compiler src/main.cpp ${SRC_FILES})
 
-add_executable(compiler src/main.cpp ${SRC_FILES} ${VISITOR_SRC})
 
 # Link runtime
 target_link_libraries(compiler antlr4_shared)

@@ -23,6 +23,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitStructDef(SysYParser::StructDefContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitConstDecl(SysYParser::ConstDeclContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -91,6 +95,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitForStmt(SysYParser::ForStmtContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitWhileStmt(SysYParser::WhileStmtContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -107,6 +115,14 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitForInitAssign(SysYParser::ForInitAssignContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitForInitExp(SysYParser::ForInitExpContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitExp(SysYParser::ExpContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -115,7 +131,19 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitLVal(SysYParser::LValContext *ctx) override {
+  virtual std::any visitLValArray(SysYParser::LValArrayContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitLValId(SysYParser::LValIdContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitLValDeref(SysYParser::LValDerefContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitLValMember(SysYParser::LValMemberContext *ctx) override {
     return visitChildren(ctx);
   }
 

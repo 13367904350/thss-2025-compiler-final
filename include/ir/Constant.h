@@ -128,3 +128,36 @@ public:
 private:
     std::vector<Constant *> elements_;
 };
+
+class ConstantStruct : public Constant {
+public:
+    ConstantStruct(StructType *ty, std::vector<Constant *> elements)
+        : Constant(ty), elements_(std::move(elements)) {}
+
+    static ConstantStruct *get(StructType *ty, std::vector<Constant *> elements) {
+        return new ConstantStruct(ty, std::move(elements));
+    }
+
+    virtual bool isZero() const override {
+        for (auto *elem : elements_) {
+            if (!elem->isZero()) return false;
+        }
+        return true;
+    }
+
+    std::string print() const override {
+        std::string s = "{";
+        for (size_t i = 0; i < elements_.size(); ++i) {
+            auto *elem = elements_[i];
+            s += elem->getType()->print() + " " + elem->print();
+            if (i + 1 < elements_.size()) {
+                s += ", ";
+            }
+        }
+        s += "}";
+        return s;
+    }
+
+private:
+    std::vector<Constant *> elements_;
+};
