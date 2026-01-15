@@ -1694,7 +1694,8 @@ Value *CodeGenVisitor::getArrayElementPtr(const SymbolInfo &info, SysYParser::LV
         currentTy = ptrTy->getElementType();
     }
 
-    bool isPointerSymbol = symbolTy && symbolTy->isPointerTy();
+    bool originatesFromAggregate = dynamic_cast<AllocaInst *>(basePtr) != nullptr || dynamic_cast<GlobalVariable *>(basePtr) != nullptr;
+    bool isPointerSymbol = symbolTy && symbolTy->isPointerTy() && !originatesFromAggregate;
 
     if ((!isPointerSymbol) && currentTy && currentTy->isArrayTy()) {
         indices.push_back(ConstantInt::get(Type::getInt64Ty(), 0));
