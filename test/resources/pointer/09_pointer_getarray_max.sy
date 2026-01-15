@@ -1,0 +1,22 @@
+int max_val(int a[], int n){
+    int m;
+    int i;
+    m = a[0];
+    i = 1;
+    while(i < n){
+        if(a[i] > m){
+            m = a[i];
+        }
+        i = i + 1;
+    }
+    return m;
+}
+
+int main(){
+    int a[10];
+    int n;
+    n = getarray(a);
+    putint(max_val(a, n));
+    putch(10);
+    return 0;
+}

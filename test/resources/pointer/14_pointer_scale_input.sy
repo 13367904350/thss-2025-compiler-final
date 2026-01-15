@@ -1,0 +1,19 @@
+void scale(int *p, int n, int k){
+    int i;
+    i = 0;
+    while(i < n){
+        *(p + i) = *(p + i) * k;
+        i = i + 1;
+    }
+}
+
+int main(){
+    int a[10];
+    int n;
+    int k;
+    n = getarray(a);
+    k = getint();
+    scale(a, n, k);
+    putarray(n, a);
+    return 0;
+}

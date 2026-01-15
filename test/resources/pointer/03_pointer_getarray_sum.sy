@@ -1,0 +1,20 @@
+int sum(int a[], int n){
+    int s;
+    int i;
+    s = 0;
+    i = 0;
+    while(i < n){
+        s = s + a[i];
+        i = i + 1;
+    }
+    return s;
+}
+
+int main(){
+    int a[10];
+    int n;
+    n = getarray(a);
+    putint(sum(a, n));
+    putch(10);
+    return 0;
+}

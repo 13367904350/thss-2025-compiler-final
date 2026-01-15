@@ -187,4 +187,9 @@ private:
     Constant *buildConstArrayFromScalars(Type *ty, const std::vector<SysYParser::ConstInitValContext *> &subInits, size_t &cursor);
     Constant *buildVarArrayFromScalars(Type *ty, const std::vector<SysYParser::InitValContext *> &subInits, size_t &cursor);
     AllocaInst *createEntryBlockAlloca(Type *ty, const std::string &name = "");
+
+    int getPointerDepth(SysYParser::PointerContext *ctx);
+    Type *applyPointerDepth(Type *baseTy, int depth);
+    Value *getLValAddress(SysYParser::LValContext *ctx, Type **elemTy);
+    Value *createPointerOffset(Value *ptr, Value *idx, bool isSub);
 };

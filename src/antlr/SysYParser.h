@@ -15,10 +15,10 @@ public:
     CONST = 1, INT = 2, FLOAT = 3, VOID = 4, IF = 5, ELSE = 6, WHILE = 7, 
     BREAK = 8, CONTINUE = 9, RETURN = 10, PLUS = 11, MINUS = 12, MUL = 13, 
     DIV = 14, MOD = 15, ASSIGN = 16, EQ = 17, NEQ = 18, LT = 19, GT = 20, 
-    LE = 21, GE = 22, NOT = 23, AND = 24, OR = 25, LPAREN = 26, RPAREN = 27, 
-    LBRACK = 28, RBRACK = 29, LBRACE = 30, RBRACE = 31, COMMA = 32, SEMICOLON = 33, 
-    IDENT = 34, FLOAT_CONST = 35, DEC_INT_CONST = 36, OCT_INT_CONST = 37, 
-    HEX_INT_CONST = 38, WS = 39, LINE_COMMENT = 40, BLOCK_COMMENT = 41
+    LE = 21, GE = 22, NOT = 23, AMP = 24, AND = 25, OR = 26, LPAREN = 27, 
+    RPAREN = 28, LBRACK = 29, RBRACK = 30, LBRACE = 31, RBRACE = 32, COMMA = 33, 
+    SEMICOLON = 34, IDENT = 35, FLOAT_CONST = 36, DEC_INT_CONST = 37, OCT_INT_CONST = 38, 
+    HEX_INT_CONST = 39, WS = 40, LINE_COMMENT = 41, BLOCK_COMMENT = 42
   };
 
   enum {
@@ -27,9 +27,9 @@ public:
     RuleFuncDef = 9, RuleFuncType = 10, RuleFuncFParams = 11, RuleFuncFParam = 12, 
     RuleBlock = 13, RuleBlockItem = 14, RuleStmt = 15, RuleExp = 16, RuleCond = 17, 
     RuleLVal = 18, RulePrimaryExp = 19, RuleNumber = 20, RuleUnaryExp = 21, 
-    RuleUnaryOp = 22, RuleFuncRParams = 23, RuleMulExp = 24, RuleAddExp = 25, 
-    RuleRelExp = 26, RuleEqExp = 27, RuleLAndExp = 28, RuleLOrExp = 29, 
-    RuleConstExp = 30
+    RuleUnaryOp = 22, RulePointer = 23, RuleFuncRParams = 24, RuleMulExp = 25, 
+    RuleAddExp = 26, RuleRelExp = 27, RuleEqExp = 28, RuleLAndExp = 29, 
+    RuleLOrExp = 30, RuleConstExp = 31
   };
 
   explicit SysYParser(antlr4::TokenStream *input);
@@ -72,6 +72,7 @@ public:
   class NumberContext;
   class UnaryExpContext;
   class UnaryOpContext;
+  class PointerContext;
   class FuncRParamsContext;
   class MulExpContext;
   class AddExpContext;
@@ -152,6 +153,7 @@ public:
     antlr4::tree::TerminalNode *IDENT();
     antlr4::tree::TerminalNode *ASSIGN();
     ConstInitValContext *constInitVal();
+    PointerContext *pointer();
     std::vector<antlr4::tree::TerminalNode *> LBRACK();
     antlr4::tree::TerminalNode* LBRACK(size_t i);
     std::vector<ConstExpContext *> constExp();
@@ -208,6 +210,7 @@ public:
     VarDefContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
     antlr4::tree::TerminalNode *IDENT();
+    PointerContext *pointer();
     std::vector<antlr4::tree::TerminalNode *> LBRACK();
     antlr4::tree::TerminalNode* LBRACK(size_t i);
     std::vector<ConstExpContext *> constExp();
@@ -298,6 +301,7 @@ public:
     virtual size_t getRuleIndex() const override;
     BTypeContext *bType();
     antlr4::tree::TerminalNode *IDENT();
+    PointerContext *pointer();
     std::vector<antlr4::tree::TerminalNode *> LBRACK();
     antlr4::tree::TerminalNode* LBRACK(size_t i);
     std::vector<antlr4::tree::TerminalNode *> RBRACK();
@@ -484,6 +488,8 @@ public:
     ExpContext* exp(size_t i);
     std::vector<antlr4::tree::TerminalNode *> RBRACK();
     antlr4::tree::TerminalNode* RBRACK(size_t i);
+    antlr4::tree::TerminalNode *MUL();
+    UnaryExpContext *unaryExp();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -551,6 +557,8 @@ public:
     antlr4::tree::TerminalNode *PLUS();
     antlr4::tree::TerminalNode *MINUS();
     antlr4::tree::TerminalNode *NOT();
+    antlr4::tree::TerminalNode *MUL();
+    antlr4::tree::TerminalNode *AMP();
 
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
@@ -558,6 +566,20 @@ public:
   };
 
   UnaryOpContext* unaryOp();
+
+  class  PointerContext : public antlr4::ParserRuleContext {
+  public:
+    PointerContext(antlr4::ParserRuleContext *parent, size_t invokingState);
+    virtual size_t getRuleIndex() const override;
+    std::vector<antlr4::tree::TerminalNode *> MUL();
+    antlr4::tree::TerminalNode* MUL(size_t i);
+
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+   
+  };
+
+  PointerContext* pointer();
 
   class  FuncRParamsContext : public antlr4::ParserRuleContext {
   public:

@@ -1,0 +1,12 @@
+int main(){
+    int a;
+    int *p;
+    int **pp;
+    a = 5;
+    p = &a;
+    pp = &p;
+    **pp = 12;
+    putint(a);
+    putch(10);
+    return 0;
+}

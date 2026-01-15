@@ -1,0 +1,13 @@
+int main(){
+    int a[3];
+    int *p;
+    a[0] = 1;
+    a[1] = 2;
+    a[2] = 3;
+    p = &a[0];
+    putint(p[1]);
+    putch(10);
+    putint(*(p + 1));
+    putch(10);
+    return 0;
+}

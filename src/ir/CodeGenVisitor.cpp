@@ -111,8 +111,11 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
                 baseTy = Type::getFloatTy();
             }
 
+            int ptrDepth = getPointerDepth(paramCtx->pointer());
+            Type *paramBase = applyPointerDepth(baseTy, ptrDepth);
+
             // Check if it's an array parameter (has LBRACK)
-            if (!paramCtx->LBRACK().empty()) {
+            if (!paramCtx->LBRACK().empty() && ptrDepth == 0) {
                 // Array parameter: build pointer to remaining dimensions
                 std::vector<int> dims = collectDimensions(paramCtx->constExp());
                 Type *elemTy = baseTy;
@@ -121,8 +124,8 @@ std::any CodeGenVisitor::visitFuncDef(SysYParser::FuncDefContext *ctx) {
                 }
                 paramTypes.push_back(PointerType::get(elemTy));
             } else {
-                // Regular parameter (int or float)
-                paramTypes.push_back(baseTy);
+                // Regular parameter (int/float/pointer)
+                paramTypes.push_back(paramBase);
             }
         }
     }
@@ -217,9 +220,12 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
         baseTy = Type::getFloatTy();
     }
     
+    int ptrDepth = getPointerDepth(ctx->pointer());
+    Type *ptrBase = applyPointerDepth(baseTy, ptrDepth);
     auto dims = collectDimensions(ctx->constExp());
-    Type *varTy = dims.empty() ? baseTy : buildArrayType(baseTy, dims);
+    Type *varTy = dims.empty() ? ptrBase : buildArrayType(ptrBase, dims);
     bool isArray = !dims.empty();
+    bool isPointer = ptrDepth > 0;
 
     if (isGlobalScope()) {
         Constant *init = nullptr;
@@ -257,8 +263,12 @@ std::any CodeGenVisitor::visitVarDef(SysYParser::VarDefContext *ctx) {
                 emitLocalInitializer(alloca, varTy, ctx->initVal());
             } else if (ctx->initVal()->exp()) {
                 Value *val = std::any_cast<Value *>(visit(ctx->initVal()->exp()));
-                val = castTo(val, baseTy, builder_.GetInsertBlock());
-                builder_.createStore(val, alloca);
+                if (isPointer) {
+                    builder_.createStore(val, alloca);
+                } else {
+                    val = castTo(val, baseTy, builder_.GetInsertBlock());
+                    builder_.createStore(val, alloca);
+                }
             }
         }
     }
@@ -283,8 +293,10 @@ std::any CodeGenVisitor::visitConstDef(SysYParser::ConstDefContext *ctx) {
         baseTy = Type::getFloatTy();
     }
 
+    int ptrDepth = getPointerDepth(ctx->pointer());
+    Type *ptrBase = applyPointerDepth(baseTy, ptrDepth);
     auto dims = collectDimensions(ctx->constExp());
-    Type *varTy = dims.empty() ? baseTy : buildArrayType(baseTy, dims);
+    Type *varTy = dims.empty() ? ptrBase : buildArrayType(ptrBase, dims);
     Constant *constInit = buildConstInitializer(varTy, ctx->constInitVal());
 
     if (isGlobalScope()) {
@@ -308,44 +320,42 @@ std::any CodeGenVisitor::visitConstExp(SysYParser::ConstExpContext *ctx) {
 
 std::any CodeGenVisitor::visitAssignStmt(SysYParser::AssignStmtContext *ctx) {
     // stmt : lVal ASSIGN exp SEMICOLON
-    std::string varName = ctx->lVal()->IDENT()->getText();
-    auto *info = lookupSymbolInfo(varName);
-    if (!info || !info->value) {
-        std::cerr << "Error: Undefined variable '" << varName << "'" << std::endl;
+    auto *lval = ctx->lVal();
+    if (!lval) {
         return nullptr;
     }
 
-    if (info->isConst) {
-        std::cerr << "Error: Assignment to const variable '" << varName << "'" << std::endl;
-        return nullptr;
+    if (lval->IDENT()) {
+        std::string varName = lval->IDENT()->getText();
+        auto *info = lookupSymbolInfo(varName);
+        if (!info || !info->value) {
+            std::cerr << "Error: Undefined variable '" << varName << "'" << std::endl;
+            return nullptr;
+        }
+        if (info->isConst && lval->LBRACK().empty()) {
+            std::cerr << "Error: Assignment to const variable '" << varName << "'" << std::endl;
+            return nullptr;
+        }
     }
-    
+
     // Evaluate the expression
     auto val_any = visit(ctx->exp());
     Value *val = std::any_cast<Value *>(val_any);
 
-    if (ctx->lVal()->LBRACK().empty()) {
-        if (!info->value->getType()->isPointerTy() || (info->type && (info->type->isArrayTy() || info->type->isPointerTy()))) {
-            std::cerr << "Error: Invalid assignment target '" << varName << "'" << std::endl;
-            return nullptr;
-        }
-        // Determine target element type from pointer
-        auto *ptrTy = static_cast<PointerType *>(info->value->getType());
-        Type *targetTy = ptrTy->getElementType();
-        val = castTo(val, targetTy, builder_.GetInsertBlock());
-        builder_.createStore(val, info->value);
+    Type *elemTy = nullptr;
+    Value *addr = getLValAddress(lval, &elemTy);
+    if (!addr || !elemTy || elemTy->isArrayTy()) {
+        std::cerr << "Error: Invalid assignment target" << std::endl;
         return nullptr;
     }
 
-    Type *elemTy = nullptr;
-    Value *elemPtr = getArrayElementPtr(*info, ctx->lVal(), &elemTy);
-    if (!elemPtr || (elemTy && elemTy->isArrayTy())) {
-        std::cerr << "Error: Invalid array assignment for '" << varName << "'" << std::endl;
+    if (elemTy->isPointerTy()) {
+        builder_.createStore(val, addr);
         return nullptr;
     }
-    
+
     val = castTo(val, elemTy, builder_.GetInsertBlock());
-    builder_.createStore(val, elemPtr);
+    builder_.createStore(val, addr);
     return nullptr;
 }
 
@@ -789,6 +799,27 @@ std::any CodeGenVisitor::visitAddExp(SysYParser::AddExpContext *ctx) {
         auto right_any = visit(ctx->mulExp());
         Value *lhs = std::any_cast<Value *>(left_any);
         Value *rhs = std::any_cast<Value *>(right_any);
+
+        bool lhsPtr = lhs && lhs->getType()->isPointerTy();
+        bool rhsPtr = rhs && rhs->getType()->isPointerTy();
+        if ((ctx->PLUS() || ctx->MINUS()) && (lhsPtr || rhsPtr)) {
+            bool rhsInt = rhs && rhs->getType()->isIntegerTy();
+            bool lhsInt = lhs && lhs->getType()->isIntegerTy();
+            if (lhsPtr && rhsInt) {
+                Value *gep = createPointerOffset(lhs, rhs, ctx->MINUS() != nullptr);
+                if (gep) {
+                    gep->setName(genName());
+                    return static_cast<Value *>(gep);
+                }
+            }
+            if (rhsPtr && lhsInt && ctx->PLUS()) {
+                Value *gep = createPointerOffset(rhs, lhs, false);
+                if (gep) {
+                    gep->setName(genName());
+                    return static_cast<Value *>(gep);
+                }
+            }
+        }
         
         Type *finalTy = getUpgradedType(lhs->getType(), rhs->getType());
         lhs = castTo(lhs, finalTy, builder_.GetInsertBlock());
@@ -880,6 +911,29 @@ std::any CodeGenVisitor::visitUnaryExp(SysYParser::UnaryExpContext *ctx) {
             ZExtInst *zext = builder_.createZExt(cmp, Type::getInt32Ty());
             zext->setName(genName());
             return static_cast<Value *>(zext);
+        } else if (op == "*") {
+            if (!val || !val->getType()->isPointerTy()) {
+                return static_cast<Value *>(nullptr);
+            }
+            Type *elemTy = static_cast<PointerType *>(val->getType())->getElementType();
+            if (elemTy->isArrayTy()) {
+                std::vector<Value *> idx = {ConstantInt::get(Type::getInt64Ty(), 0), ConstantInt::get(Type::getInt64Ty(), 0)};
+                Value *decayed = builder_.createGEP(val, idx);
+                decayed->setName(genName());
+                return static_cast<Value *>(decayed);
+            }
+            LoadInst *load = builder_.createLoad(elemTy, val);
+            load->setName(genName());
+            return static_cast<Value *>(load);
+        } else if (op == "&") {
+            Value *addr = nullptr;
+            Type *elemTy = nullptr;
+            if (ctx->unaryExp()->primaryExp() && ctx->unaryExp()->primaryExp()->lVal()) {
+                addr = getLValAddress(ctx->unaryExp()->primaryExp()->lVal(), &elemTy);
+            } else if (ctx->unaryExp()->unaryOp() && ctx->unaryExp()->unaryOp()->getText() == "*") {
+                addr = std::any_cast<Value *>(visit(ctx->unaryExp()->unaryExp()));
+            }
+            return static_cast<Value *>(addr);
         }
     } else if (ctx->IDENT()) {
         // Function call: IDENT LPAREN (funcRParams)? RPAREN
@@ -933,6 +987,24 @@ std::any CodeGenVisitor::visitPrimaryExp(SysYParser::PrimaryExpContext *ctx) {
 }
 
 std::any CodeGenVisitor::visitLVal(SysYParser::LValContext *ctx) {
+    if (ctx->MUL()) {
+        auto val_any = visit(ctx->unaryExp());
+        Value *ptr = std::any_cast<Value *>(val_any);
+        if (!ptr || !ptr->getType()->isPointerTy()) {
+            return static_cast<Value *>(nullptr);
+        }
+        Type *elemTy = static_cast<PointerType *>(ptr->getType())->getElementType();
+        if (elemTy->isArrayTy()) {
+            std::vector<Value *> idx = {ConstantInt::get(Type::getInt64Ty(), 0), ConstantInt::get(Type::getInt64Ty(), 0)};
+            Value *decayed = builder_.createGEP(ptr, idx);
+            decayed->setName(genName());
+            return static_cast<Value *>(decayed);
+        }
+        LoadInst *load = builder_.createLoad(elemTy, ptr);
+        load->setName(genName());
+        return static_cast<Value *>(load);
+    }
+
     std::string varName = ctx->IDENT()->getText();
     auto *info = lookupSymbolInfo(varName);
 
@@ -1532,6 +1604,68 @@ Value *CodeGenVisitor::promoteToInt64(Value *val) {
         }
     }
     return val;
+}
+
+int CodeGenVisitor::getPointerDepth(SysYParser::PointerContext *ctx) {
+    if (!ctx) return 0;
+    return static_cast<int>(ctx->MUL().size());
+}
+
+Type *CodeGenVisitor::applyPointerDepth(Type *baseTy, int depth) {
+    Type *ty = baseTy;
+    for (int i = 0; i < depth; ++i) {
+        ty = PointerType::get(ty);
+    }
+    return ty;
+}
+
+Value *CodeGenVisitor::createPointerOffset(Value *ptr, Value *idx, bool isSub) {
+    if (!ptr || !idx) return ptr;
+    Value *offset = promoteToInt64(idx);
+    if (!offset) {
+        offset = ConstantInt::get(Type::getInt64Ty(), 0);
+    }
+    if (isSub) {
+        Value *zero = ConstantInt::get(Type::getInt64Ty(), 0);
+        offset = builder_.createSub(zero, offset);
+    }
+    std::vector<Value *> gepIdx = {offset};
+    return builder_.createGEP(ptr, gepIdx);
+}
+
+Value *CodeGenVisitor::getLValAddress(SysYParser::LValContext *ctx, Type **elemTy) {
+    if (!ctx) return nullptr;
+
+    if (ctx->IDENT()) {
+        std::string varName = ctx->IDENT()->getText();
+        auto *info = lookupSymbolInfo(varName);
+        if (!info || !info->value) {
+            std::cerr << "Error: Undefined variable '" << varName << "'" << std::endl;
+            return nullptr;
+        }
+
+        if (ctx->LBRACK().empty()) {
+            if (elemTy) {
+                *elemTy = info->type ? info->type : info->value->getType();
+            }
+            return info->value;
+        }
+        return getArrayElementPtr(*info, ctx, elemTy);
+    }
+
+    if (ctx->MUL()) {
+        auto val_any = visit(ctx->unaryExp());
+        Value *ptr = std::any_cast<Value *>(val_any);
+        if (!ptr || !ptr->getType()->isPointerTy()) {
+            return nullptr;
+        }
+        if (elemTy) {
+            *elemTy = static_cast<PointerType *>(ptr->getType())->getElementType();
+        }
+        return ptr;
+    }
+
+    return nullptr;
 }
 
 Value *CodeGenVisitor::getArrayElementPtr(const SymbolInfo &info, SysYParser::LValContext *ctx, Type **elemTy) {

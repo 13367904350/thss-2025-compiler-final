@@ -1,0 +1,11 @@
+void modify(int a[]){
+    a[1]=99;
+}
+
+int main(){
+    int a[3];
+    a[0]=10; a[1]=20; a[2]=30;
+    modify(a);
+    putarray(3,a);
+    return 0;
+}
