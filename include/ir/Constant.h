@@ -3,6 +3,7 @@
 #include "ir/User.h"
 #include <utility>
 #include <vector>
+#include <cstdint>
 
 class Constant : public User {
 public:

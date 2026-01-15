@@ -1,0 +1,21 @@
+int sum(int *p, int n){
+    int i;
+    int s;
+    i = 0;
+    s = 0;
+    while(i < n){
+        s = s + *(p + i);
+        i = i + 1;
+    }
+    return s;
+}
+
+int main(){
+    int a[3];
+    a[0] = 4;
+    a[1] = 5;
+    a[2] = 6;
+    putint(sum(a, 3));
+    putch(10);
+    return 0;
+}

@@ -23,7 +23,7 @@ bType
     ;
 
 constDef
-    : IDENT (LBRACK constExp RBRACK)* ASSIGN constInitVal
+    : pointer? IDENT (LBRACK constExp RBRACK)* ASSIGN constInitVal
     ;
 
 constInitVal
@@ -36,7 +36,7 @@ varDecl
     ;
 
 varDef
-    : IDENT (LBRACK constExp RBRACK)* (ASSIGN initVal)?
+    : pointer? IDENT (LBRACK constExp RBRACK)* (ASSIGN initVal)?
     ;
 
 initVal
@@ -57,7 +57,7 @@ funcFParams
     ;
 
 funcFParam
-    : bType IDENT (LBRACK RBRACK (LBRACK constExp RBRACK)*)?
+    : bType pointer? IDENT (LBRACK RBRACK (LBRACK constExp RBRACK)*)?
     ;
 
 block
@@ -90,6 +90,7 @@ cond
 
 lVal
     : IDENT (LBRACK exp RBRACK)*
+    | MUL unaryExp
     ;
 
 primaryExp
@@ -115,6 +116,12 @@ unaryOp
     : PLUS
     | MINUS
     | NOT
+    | MUL
+    | AMP
+    ;
+
+pointer
+    : MUL+
     ;
 
 funcRParams

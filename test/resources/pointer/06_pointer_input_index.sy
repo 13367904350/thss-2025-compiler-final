@@ -1,0 +1,13 @@
+int main(){
+    int a[3];
+    int idx;
+    int val;
+    a[0] = 0;
+    a[1] = 0;
+    a[2] = 0;
+    idx = getint();
+    val = getint();
+    a[idx] = val;
+    putarray(3, a);
+    return 0;
+}
