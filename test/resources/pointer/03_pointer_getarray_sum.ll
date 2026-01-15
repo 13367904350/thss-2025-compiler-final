@@ -38,20 +38,19 @@ while.cond1:
   br i1 %.v5, label %while.body2, label %while.end3
 while.body2:
   %.v6 = load i32, i32* %s
-  %t6 = load i32*, i32** %a.addr
   %.v7 = load i32, i32* %i
-  %t8 = sext i32 %.v7 to i64
-  %t9 = getelementptr i32, i32* %t6, i64 %t8
-  %.v8 = load i32, i32* %t9
-  %.v9 = add i32 %.v6, %.v8
-  store i32 %.v9, i32* %s
-  %.v10 = load i32, i32* %i
-  %.v11 = add i32 %.v10, 1
-  store i32 %.v11, i32* %i
+  %.v8 = load i32*, i32** %a.addr
+  %.v9 = getelementptr i32, i32* %.v8, i32 %.v7
+  %.v10 = load i32, i32* %.v9
+  %.v11 = add i32 %.v6, %.v10
+  store i32 %.v11, i32* %s
+  %.v12 = load i32, i32* %i
+  %.v13 = add i32 %.v12, 1
+  store i32 %.v13, i32* %i
   br label %while.cond1
 while.end3:
-  %.v12 = load i32, i32* %s
-  ret i32 %.v12
+  %.v14 = load i32, i32* %s
+  ret i32 %.v14
 }
 
 define i32 @main() {

@@ -26,46 +26,43 @@ entry:
   %a.addr = alloca i32*
   store i32* %a, i32** %a.addr
   store i32 %n, i32* %n.addr
-  %t0 = load i32*, i32** %a.addr
-  %t1 = sext i32 0 to i64
-  %t2 = getelementptr i32, i32* %t0, i64 %t1
-  %.v1 = load i32, i32* %t2
-  store i32 %.v1, i32* %m
+  %.v1 = load i32*, i32** %a.addr
+  %.v2 = getelementptr i32, i32* %.v1, i32 0
+  %.v3 = load i32, i32* %.v2
+  store i32 %.v3, i32* %m
   store i32 1, i32* %i
   br label %while.cond1
 while.cond1:
-  %.v2 = load i32, i32* %i
-  %.v3 = load i32, i32* %n.addr
-  %.v4 = icmp slt i32 %.v2, %.v3
-  %.v5 = zext i1 %.v4 to i32
-  %.v6 = icmp ne i32 %.v5, 0
-  br i1 %.v6, label %while.body2, label %while.end3
+  %.v4 = load i32, i32* %i
+  %.v5 = load i32, i32* %n.addr
+  %.v6 = icmp slt i32 %.v4, %.v5
+  %.v7 = zext i1 %.v6 to i32
+  %.v8 = icmp ne i32 %.v7, 0
+  br i1 %.v8, label %while.body2, label %while.end3
 while.body2:
-  %t9 = load i32*, i32** %a.addr
-  %.v7 = load i32, i32* %i
-  %t11 = sext i32 %.v7 to i64
-  %t12 = getelementptr i32, i32* %t9, i64 %t11
-  %.v8 = load i32, i32* %t12
-  %.v9 = load i32, i32* %m
-  %.v10 = icmp sgt i32 %.v8, %.v9
-  %.v11 = zext i1 %.v10 to i32
-  %.v12 = icmp ne i32 %.v11, 0
-  br i1 %.v12, label %if.then4, label %if.end5
+  %.v9 = load i32, i32* %i
+  %.v10 = load i32*, i32** %a.addr
+  %.v11 = getelementptr i32, i32* %.v10, i32 %.v9
+  %.v12 = load i32, i32* %.v11
+  %.v13 = load i32, i32* %m
+  %.v14 = icmp sgt i32 %.v12, %.v13
+  %.v15 = zext i1 %.v14 to i32
+  %.v16 = icmp ne i32 %.v15, 0
+  br i1 %.v16, label %if.then4, label %if.end5
 while.end3:
-  %.v17 = load i32, i32* %m
-  ret i32 %.v17
+  %.v23 = load i32, i32* %m
+  ret i32 %.v23
 if.then4:
-  %t18 = load i32*, i32** %a.addr
-  %.v13 = load i32, i32* %i
-  %t20 = sext i32 %.v13 to i64
-  %t21 = getelementptr i32, i32* %t18, i64 %t20
-  %.v14 = load i32, i32* %t21
-  store i32 %.v14, i32* %m
+  %.v17 = load i32, i32* %i
+  %.v18 = load i32*, i32** %a.addr
+  %.v19 = getelementptr i32, i32* %.v18, i32 %.v17
+  %.v20 = load i32, i32* %.v19
+  store i32 %.v20, i32* %m
   br label %if.end5
 if.end5:
-  %.v15 = load i32, i32* %i
-  %.v16 = add i32 %.v15, 1
-  store i32 %.v16, i32* %i
+  %.v21 = load i32, i32* %i
+  %.v22 = add i32 %.v21, 1
+  store i32 %.v22, i32* %i
   br label %while.cond1
 }
 

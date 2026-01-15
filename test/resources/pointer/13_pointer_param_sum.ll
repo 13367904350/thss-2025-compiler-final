@@ -41,31 +41,28 @@ while.body2:
   %.v7 = load i32*, i32** %p.addr
   %.v8 = load i32, i32* %i
   %t8 = sext i32 %.v8 to i64
-  %.v9 = getelementptr i32, i32* %.v7, i64 %t8
-  %.v10 = load i32, i32* %.v9
-  %.v11 = add i32 %.v6, %.v10
-  store i32 %.v11, i32* %s
-  %.v12 = load i32, i32* %i
-  %.v13 = add i32 %.v12, 1
-  store i32 %.v13, i32* %i
+  %.v10 = getelementptr i32, i32* %.v7, i64 %t8
+  %.v11 = load i32, i32* %.v10
+  %.v12 = add i32 %.v6, %.v11
+  store i32 %.v12, i32* %s
+  %.v13 = load i32, i32* %i
+  %.v14 = add i32 %.v13, 1
+  store i32 %.v14, i32* %i
   br label %while.cond1
 while.end3:
-  %.v14 = load i32, i32* %s
-  ret i32 %.v14
+  %.v15 = load i32, i32* %s
+  ret i32 %.v15
 }
 
 define i32 @main() {
 entry:
   %a = alloca [3 x i32]
-  %t15 = sext i32 0 to i64
-  %t16 = getelementptr [3 x i32], [3 x i32]* %a, i64 0, i64 %t15
-  store i32 4, i32* %t16
-  %t17 = sext i32 1 to i64
-  %t18 = getelementptr [3 x i32], [3 x i32]* %a, i64 0, i64 %t17
-  store i32 5, i32* %t18
-  %t19 = sext i32 2 to i64
-  %t20 = getelementptr [3 x i32], [3 x i32]* %a, i64 0, i64 %t19
-  store i32 6, i32* %t20
+  %t15 = getelementptr [3 x i32], [3 x i32]* %a, i64 0, i32 0
+  store i32 4, i32* %t15
+  %t16 = getelementptr [3 x i32], [3 x i32]* %a, i64 0, i32 1
+  store i32 5, i32* %t16
+  %t17 = getelementptr [3 x i32], [3 x i32]* %a, i64 0, i32 2
+  store i32 6, i32* %t17
   %.v1 = getelementptr [3 x i32], [3 x i32]* %a, i64 0, i64 0
   %.v2 = call i32 @sum(i32* %.v1, i32 3)
   call void @putint(i32 %.v2)
